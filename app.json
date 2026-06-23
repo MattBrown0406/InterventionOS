@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "InterventionOS",
+    "slug": "interventionos",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "interventionos",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.matthewbrown.interventionos"
+    },
+    "android": {
+      "package": "com.matthewbrown.interventionos"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e9c1db37-f9a4-4596-88b8-c99abdf9bc61"
+      }
+    }
+  }
+}
