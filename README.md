@@ -15,6 +15,17 @@ npx eas-cli init --id e9c1db37-f9a4-4596-88b8-c99abdf9bc61
 npm run start
 ```
 
+## Supabase
+
+Create a local `.env` file:
+
+```sh
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
+```
+
+The local `.env` file is ignored by git. Use `supabase/schema.sql` in the Supabase SQL editor to create the first tables and the private `case-documents` storage bucket.
+
 ## Current Features
 
 - Intervention and Coaching case pipelines
@@ -24,3 +35,4 @@ npm run start
 - Schedule and Tasks split
 - Automatic Google Calendar sync labeling for schedule entries and tasks
 - Revenue dashboard for MTD/YTD collected and owed totals
+- Supabase client configuration and starter database schema

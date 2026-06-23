@@ -9,6 +9,7 @@ import {
   View
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { hasSupabaseConfig } from "./src/lib/supabase";
 
 const todayISODate = "2026-06-23";
 
@@ -328,6 +329,7 @@ export default function App() {
     return (
       <ScrollView style={styles.panel}>
         <SectionTitle title="Integrations" />
+        <Row label="Supabase" value={hasSupabaseConfig ? "Configured" : "Missing"} tone={hasSupabaseConfig ? "green" : "rose"} />
         <Row label="Google Calendar sync" value="On" tone="green" />
         <Row label="Push notifications" value="Ready" tone="blue" />
         <SectionTitle title="Archived families" />

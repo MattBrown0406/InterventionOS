@@ -7,3 +7,4 @@ ios/
 android/
 .env
 .env.*
+!.env.example
