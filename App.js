@@ -11,58 +11,33 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { hasSupabaseConfig } from "./src/lib/supabase";
 
-const todayISODate = "2026-06-23";
+function toLocalISODate(date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-const seedFamilies = [
-  {
-    id: "hayes",
-    name: "Hayes family",
-    type: "intervention",
-    meta: "Intervention prep - Austin, TX",
-    status: "Urgent",
-    participants: "Mother: primary caller\nSister: letter drafted\nSpouse: needs coaching",
-    contact: "Mary Hayes\n(512) 555-0148\nmary@example.com",
-    notes: "Family is aligned on treatment but worried about refusal.",
-    focus: "Residential dual-diagnosis program\nBackup detox option",
-    documents: ["Mother letter", "Sister letter", "Script outline"],
-    amount: 0,
-    paymentStatus: "pending",
-    archived: false
-  },
-  {
-    id: "martin",
-    name: "Martin parents",
-    type: "coaching",
-    meta: "Coaching - week 6 of 12",
-    status: "Stable",
-    participants: "Mother and father\nAdult daughter: no contact",
-    contact: "Carol Martin\n(303) 555-0182\ncarol@example.com",
-    notes: "Parents are holding boundaries more consistently.",
-    focus: "Boundary language\nFinancial request response plan",
-    documents: ["Boundary script", "Call notes"],
-    amount: 0,
-    paymentStatus: "received",
-    archived: false
-  }
-];
+const currentDate = new Date();
+const todayISODate = toLocalISODate(currentDate);
+const dateLabel = currentDate.toLocaleDateString("en-US", {
+  weekday: "long",
+  month: "long",
+  day: "numeric"
+});
 
-const seedSchedule = [
-  { id: "daily", title: "Daily case review", family: "Internal", time: "8:15", note: "review overnight updates" },
-  { id: "hayes-prep", title: "Hayes intervention prep", family: "Hayes family", time: "10:30", note: "father, sister, spouse" },
-  { id: "martin", title: "Martin coaching", family: "Martin parents", time: "1:00", note: "boundaries and next steps" }
-];
+const seedFamilies = [];
 
-const seedTasks = [
-  { id: "lodging", title: "Send lodging options to Rivera family", dueDate: todayISODate },
-  { id: "speaker", title: "Confirm Hayes family speaker order", dueDate: todayISODate }
-];
+const seedSchedule = [];
+
+const seedTasks = [];
 
 const baselineRevenue = {
-  ytdCollected: 412480,
-  ytdOwed: 41000,
-  mtdCollected: 48600,
-  mtdOwed: 15500,
-  pendingCount: 5
+  ytdCollected: 0,
+  ytdOwed: 0,
+  mtdCollected: 0,
+  mtdOwed: 0,
+  pendingCount: 0
 };
 
 function money(value, compact = false) {
@@ -91,7 +66,7 @@ export default function App() {
   const [tab, setTab] = useState("today");
   const [families, setFamilies] = useState(seedFamilies);
   const [caseFilter, setCaseFilter] = useState("intervention");
-  const [expandedCase, setExpandedCase] = useState("hayes");
+  const [expandedCase, setExpandedCase] = useState("");
   const [showFamilyForm, setShowFamilyForm] = useState(false);
   const [showEntryForm, setShowEntryForm] = useState(false);
   const [scheduleFilter, setScheduleFilter] = useState("schedule");
@@ -130,7 +105,7 @@ export default function App() {
       .reduce((sum, family) => sum + Number(family.amount), 0);
     const avg = caseRevenue.length
       ? caseRevenue.reduce((sum, family) => sum + Number(family.amount), 0) / caseRevenue.length
-      : 18700;
+      : 0;
 
     return {
       ytdCollected: baselineRevenue.ytdCollected + received,
@@ -163,13 +138,13 @@ export default function App() {
       id,
       name: familyForm.name.trim(),
       type: familyForm.type,
-      meta: familyForm.meta || "New intake",
+      meta: familyForm.meta,
       status: "New",
-      participants: "Add family members and roles",
-      contact: familyForm.contact || "Primary contact pending",
-      notes: familyForm.notes || "Initial intake created.",
-      focus: familyForm.type === "intervention" ? "Add treatment recommendations" : "Add coaching focus",
-      documents: ["Add documents"],
+      participants: "",
+      contact: familyForm.contact,
+      notes: familyForm.notes,
+      focus: "",
+      documents: [],
       amount: Number(familyForm.amount || 0),
       paymentStatus: familyForm.paymentStatus,
       archived: false
@@ -222,10 +197,12 @@ export default function App() {
         </View>
         <SectionTitle title="Next up" />
         {scheduleItems.slice(0, 2).map((item) => <Appointment key={item.id} item={item} />)}
+        {!scheduleItems.length ? <Text style={styles.empty}>No appointments scheduled.</Text> : null}
         <SectionTitle title="Needs attention" />
         {todayTasks.map((task) => (
           <Row key={task.id} label={task.title} value="Due" tone="rose" />
         ))}
+        {!todayTasks.length ? <Text style={styles.empty}>No tasks due today.</Text> : null}
       </ScrollView>
     );
   }
@@ -269,6 +246,7 @@ export default function App() {
           </FormCard>
         ) : null}
         {visibleFamilies.map((family) => <CaseCard key={family.id} family={family} expanded={expandedCase === family.id} onExpand={() => setExpandedCase(expandedCase === family.id ? "" : family.id)} onUpdate={updateFamily} />)}
+        {!visibleFamilies.length ? <Text style={styles.empty}>No active {caseFilter} cases yet.</Text> : null}
       </ScrollView>
     );
   }
@@ -303,6 +281,8 @@ export default function App() {
           onChange={setScheduleFilter}
         />
         {scheduleFilter === "schedule" ? scheduleItems.map((item) => <Appointment key={item.id} item={item} />) : tasks.map((task) => <Row key={task.id} label={task.title} value={task.dueDate === todayISODate ? "Due today" : task.dueDate} tone={task.dueDate === todayISODate ? "rose" : "blue"} />)}
+        {scheduleFilter === "schedule" && !scheduleItems.length ? <Text style={styles.empty}>No schedule items yet.</Text> : null}
+        {scheduleFilter === "task" && !tasks.length ? <Text style={styles.empty}>No tasks yet.</Text> : null}
       </ScrollView>
     );
   }
@@ -353,7 +333,7 @@ export default function App() {
         <View>
           <Text style={styles.title}>{tab[0].toUpperCase() + tab.slice(1)}</Text>
         </View>
-        <Text style={styles.date}>Tuesday, June 23</Text>
+        <Text style={styles.date}>{dateLabel}</Text>
       </View>
       <View style={styles.toolbar}>
         <Text style={styles.search}>Search families, cases, notes</Text>
