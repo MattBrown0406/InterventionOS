@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import {
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -75,6 +77,8 @@ export default function App() {
   const [familyForm, setFamilyForm] = useState({
     name: "",
     type: "intervention",
+    ipName: "",
+    primarySubstance: "",
     contact: "",
     meta: "",
     notes: "",
@@ -138,6 +142,8 @@ export default function App() {
       id,
       name: familyForm.name.trim(),
       type: familyForm.type,
+      ipName: familyForm.ipName.trim(),
+      primarySubstance: familyForm.primarySubstance.trim(),
       meta: familyForm.meta,
       status: "New",
       participants: "",
@@ -154,7 +160,7 @@ export default function App() {
     setCaseFilter(newFamily.type);
     setExpandedCase(id);
     setShowFamilyForm(false);
-    setFamilyForm({ name: "", type: "intervention", contact: "", meta: "", notes: "", amount: "", paymentStatus: "pending" });
+    setFamilyForm({ name: "", type: "intervention", ipName: "", primarySubstance: "", contact: "", meta: "", notes: "", amount: "", paymentStatus: "pending" });
   }
 
   function createScheduleEntry() {
@@ -188,7 +194,7 @@ export default function App() {
 
   function renderToday() {
     return (
-      <ScrollView style={styles.panel}>
+      <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         <View style={styles.metrics}>
           <Metric label="Active cases" value={activeFamilies.length} note="current families" />
           <Metric label="Today" value={scheduleItems.length} note="appointments" />
@@ -209,7 +215,7 @@ export default function App() {
 
   function renderCases() {
     return (
-      <ScrollView style={styles.panel}>
+      <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         <SectionTitle title="Case pipeline" />
         <Segmented
           options={[
@@ -230,6 +236,8 @@ export default function App() {
               value={familyForm.type}
               onChange={(type) => setFamilyForm({ ...familyForm, type })}
             />
+            <TextInput style={styles.input} placeholder="IP name" value={familyForm.ipName} onChangeText={(ipName) => setFamilyForm({ ...familyForm, ipName })} />
+            <TextInput style={styles.input} placeholder="Primary substance used" value={familyForm.primarySubstance} onChangeText={(primarySubstance) => setFamilyForm({ ...familyForm, primarySubstance })} />
             <TextInput style={styles.input} placeholder="Primary contact" value={familyForm.contact} onChangeText={(contact) => setFamilyForm({ ...familyForm, contact })} />
             <TextInput style={styles.input} placeholder="Location/status" value={familyForm.meta} onChangeText={(meta) => setFamilyForm({ ...familyForm, meta })} />
             <TextInput style={styles.input} placeholder="Case amount" keyboardType="numeric" value={familyForm.amount} onChangeText={(amount) => setFamilyForm({ ...familyForm, amount })} />
@@ -253,7 +261,7 @@ export default function App() {
 
   function renderSchedule() {
     return (
-      <ScrollView style={styles.panel}>
+      <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         {showEntryForm ? (
           <FormCard>
             <Segmented
@@ -289,7 +297,7 @@ export default function App() {
 
   function renderRevenue() {
     return (
-      <ScrollView style={styles.panel}>
+      <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         <View style={styles.revenueCard}>
           <Text style={styles.small}>Year-to-date collected</Text>
           <Text style={styles.bigMoney}>{money(revenue.ytdCollected)}</Text>
@@ -307,7 +315,7 @@ export default function App() {
 
   function renderAdmin() {
     return (
-      <ScrollView style={styles.panel}>
+      <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         <SectionTitle title="Integrations" />
         <Row label="Supabase" value={hasSupabaseConfig ? "Configured" : "Missing"} tone={hasSupabaseConfig ? "green" : "rose"} />
         <Row label="Google Calendar sync" value="On" tone="green" />
@@ -329,30 +337,32 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>{tab[0].toUpperCase() + tab.slice(1)}</Text>
+      <KeyboardAvoidingView style={styles.main} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>{tab[0].toUpperCase() + tab.slice(1)}</Text>
+          </View>
+          <Text style={styles.date}>{dateLabel}</Text>
         </View>
-        <Text style={styles.date}>{dateLabel}</Text>
-      </View>
-      <View style={styles.toolbar}>
-        <Text style={styles.search}>Search families, cases, notes</Text>
-        <TouchableOpacity style={styles.plus} onPress={openPlus}>
-          <Text style={styles.plusText}>+</Text>
-        </TouchableOpacity>
-      </View>
-      {tab === "today" && renderToday()}
-      {tab === "cases" && renderCases()}
-      {tab === "schedule" && renderSchedule()}
-      {tab === "revenue" && renderRevenue()}
-      {tab === "admin" && renderAdmin()}
-      <View style={styles.tabs}>
-        {["today", "cases", "schedule", "revenue", "admin"].map((item) => (
-          <TouchableOpacity key={item} style={[styles.tab, tab === item && styles.tabActive]} onPress={() => setTab(item)}>
-            <Text style={[styles.tabText, tab === item && styles.tabTextActive]}>{item[0].toUpperCase() + item.slice(1)}</Text>
+        <View style={styles.toolbar}>
+          <Text style={styles.search}>Search families, cases, notes</Text>
+          <TouchableOpacity style={styles.plus} onPress={openPlus}>
+            <Text style={styles.plusText}>+</Text>
           </TouchableOpacity>
-        ))}
-      </View>
+        </View>
+        {tab === "today" && renderToday()}
+        {tab === "cases" && renderCases()}
+        {tab === "schedule" && renderSchedule()}
+        {tab === "revenue" && renderRevenue()}
+        {tab === "admin" && renderAdmin()}
+        <View style={styles.tabs}>
+          {["today", "cases", "schedule", "revenue", "admin"].map((item) => (
+            <TouchableOpacity key={item} style={[styles.tab, tab === item && styles.tabActive]} onPress={() => setTab(item)}>
+              <Text style={[styles.tabText, tab === item && styles.tabTextActive]}>{item[0].toUpperCase() + item.slice(1)}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -367,12 +377,15 @@ function CaseCard({ family, expanded, onExpand, onUpdate }) {
         <View style={styles.caseText}>
           <Text style={styles.cardTitle}>{family.name}</Text>
           <Text style={styles.muted}>{family.meta}</Text>
+          <Text style={styles.caseMetaLine}>IP: {family.ipName || "Not set"} | Substance: {family.primarySubstance || "Not set"}</Text>
         </View>
         <Text style={styles.pill}>{family.status}</Text>
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.caseDetails}>
           <EditableBlock title="Participants" value={family.participants} onChange={(participants) => onUpdate(family.id, { participants })} multiline />
+          <EditableBlock title="IP name" value={family.ipName} onChange={(ipName) => onUpdate(family.id, { ipName })} />
+          <EditableBlock title="Primary substance used" value={family.primarySubstance} onChange={(primarySubstance) => onUpdate(family.id, { primarySubstance })} />
           <EditableBlock title="Contact" value={family.contact} onChange={(contact) => onUpdate(family.id, { contact })} multiline />
           <EditableBlock title="Case notes" value={family.notes} onChange={(notes) => onUpdate(family.id, { notes })} multiline />
           <View style={styles.detailBlock}>
@@ -495,6 +508,7 @@ function FormActions({ onSave, onCancel, saveLabel }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#f6f3ed" },
+  main: { flex: 1 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingHorizontal: 20, paddingTop: 12 },
   title: { fontSize: 30, fontWeight: "800", color: "#17211d" },
   date: { fontSize: 12, fontWeight: "700", color: "#68736e", marginBottom: 5 },
@@ -503,6 +517,7 @@ const styles = StyleSheet.create({
   plus: { width: 44, borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#fffdf8" },
   plusText: { fontSize: 26, color: "#17211d" },
   panel: { flex: 1, paddingHorizontal: 16 },
+  panelContent: { paddingBottom: 120 },
   metrics: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   metric: { width: "48%", borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 12, backgroundColor: "#fffdf8" },
   metricValue: { fontSize: 28, fontWeight: "800", marginVertical: 8, color: "#17211d" },
@@ -513,6 +528,7 @@ const styles = StyleSheet.create({
   avatarText: { color: "#2f6f5e", fontWeight: "900" },
   caseText: { flex: 1 },
   cardTitle: { fontSize: 14, fontWeight: "800", color: "#17211d" },
+  caseMetaLine: { color: "#68736e", fontSize: 11, fontWeight: "750", marginTop: 4 },
   muted: { fontSize: 12, color: "#68736e", fontWeight: "650" },
   pill: { fontSize: 11, fontWeight: "800", color: "#a64949", backgroundColor: "#f1dddd", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
   caseDetails: { marginTop: 12, borderTopWidth: 1, borderTopColor: "#dbe2de", paddingTop: 12, gap: 10 },
