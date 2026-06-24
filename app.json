@@ -9,10 +9,10 @@
     "scheme": "interventionos",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.matthewbrown.interventionos"
+      "bundleIdentifier": "com.interventionos"
     },
     "android": {
-      "package": "com.matthewbrown.interventionos"
+      "package": "com.interventionos"
     },
     "web": {
       "bundler": "metro"
