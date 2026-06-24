@@ -9,7 +9,10 @@
     "scheme": "interventionos",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.interventionos"
+      "bundleIdentifier": "com.interventionos",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.interventionos"
