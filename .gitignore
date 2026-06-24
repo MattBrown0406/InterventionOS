@@ -8,3 +8,4 @@ android/
 .env
 .env.*
 !.env.example
+.secrets/

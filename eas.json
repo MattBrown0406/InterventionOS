@@ -16,6 +16,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascApiKeyPath": ".secrets/AuthKey_829HVDJR72.p8",
+        "ascApiKeyId": "829HVDJR72",
+        "ascApiKeyIssuerId": "40cd280a-3ef6-4312-a70b-0ee2d01fce4a"
+      }
+    }
   }
 }
