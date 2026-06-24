@@ -1,6 +1,7 @@
 .env
 .env.*
 .expo
+node_modules
 .secrets
 dist
 dist-check
