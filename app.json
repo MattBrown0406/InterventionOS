@@ -10,9 +10,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.interventionos",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCalendarsUsageDescription": "InterventionOS adds appointments and dated tasks to the calendar you select.",
+        "NSCalendarsFullAccessUsageDescription": "InterventionOS adds appointments and dated tasks to the calendar you select."
       }
     },
     "android": {
@@ -21,6 +23,14 @@
     "web": {
       "bundler": "metro"
     },
+    "plugins": [
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "InterventionOS adds appointments and dated tasks to the calendar you select."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "e9c1db37-f9a4-4596-88b8-c99abdf9bc61"

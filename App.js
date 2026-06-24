@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,6 +11,7 @@ import {
   View
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import * as Calendar from "expo-calendar";
 import { hasSupabaseConfig } from "./src/lib/supabase";
 
 function toLocalISODate(date) {
@@ -64,6 +65,34 @@ function initials(name) {
     .join("") || "NF";
 }
 
+function calendarName(calendar) {
+  const sourceName = calendar.source?.name ? ` - ${calendar.source.name}` : "";
+  return `${calendar.title}${sourceName}`;
+}
+
+function isGoogleCalendar(calendar) {
+  const haystack = `${calendar.title} ${calendar.source?.name || ""} ${calendar.source?.type || ""}`.toLowerCase();
+  return haystack.includes("google") || haystack.includes("gmail");
+}
+
+function parseDate(dateText) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText.trim());
+  if (!match) return null;
+
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseTime(timeText) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeText.trim());
+  if (!match) return { hours: 9, minutes: 0 };
+
+  return {
+    hours: Math.min(Number(match[1]), 23),
+    minutes: Math.min(Number(match[2]), 59)
+  };
+}
+
 export default function App() {
   const [tab, setTab] = useState("today");
   const [families, setFamilies] = useState(seedFamilies);
@@ -74,6 +103,10 @@ export default function App() {
   const [scheduleFilter, setScheduleFilter] = useState("schedule");
   const [scheduleItems, setScheduleItems] = useState(seedSchedule);
   const [tasks, setTasks] = useState(seedTasks);
+  const [calendarPermission, setCalendarPermission] = useState("unknown");
+  const [calendars, setCalendars] = useState([]);
+  const [selectedCalendarId, setSelectedCalendarId] = useState("");
+  const [calendarMessage, setCalendarMessage] = useState("Not connected");
   const [familyForm, setFamilyForm] = useState({
     name: "",
     type: "intervention",
@@ -98,6 +131,8 @@ export default function App() {
   const visibleFamilies = activeFamilies.filter((family) => family.type === caseFilter);
   const archivedFamilies = families.filter((family) => family.archived);
   const todayTasks = tasks.filter((task) => task.dueDate === todayISODate);
+  const selectedCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId);
+  const calendarReady = calendarPermission === "granted" && Boolean(selectedCalendarId);
 
   const revenue = useMemo(() => {
     const caseRevenue = families.filter((family) => Number(family.amount) > 0);
@@ -120,6 +155,91 @@ export default function App() {
       avg
     };
   }, [families]);
+
+  useEffect(() => {
+    refreshCalendars(false);
+  }, []);
+
+  async function refreshCalendars(requestAccess = false) {
+    try {
+      const permission = requestAccess
+        ? await Calendar.requestCalendarPermissionsAsync()
+        : await Calendar.getCalendarPermissionsAsync();
+
+      setCalendarPermission(permission.status);
+
+      if (permission.status !== "granted") {
+        setCalendars([]);
+        setSelectedCalendarId("");
+        setCalendarMessage(requestAccess ? "Calendar access was not approved" : "Not connected");
+        return;
+      }
+
+      const availableCalendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const writableCalendars = availableCalendars.filter((calendar) => calendar.allowsModifications !== false);
+      const preferredCalendar = writableCalendars.find(isGoogleCalendar) || writableCalendars[0];
+
+      setCalendars(writableCalendars);
+      setSelectedCalendarId((current) => {
+        if (writableCalendars.some((calendar) => calendar.id === current)) return current;
+        return preferredCalendar?.id || "";
+      });
+      setCalendarMessage(preferredCalendar ? "Ready to sync" : "No writable calendars found");
+    } catch (error) {
+      setCalendarMessage("Calendar setup needs attention");
+    }
+  }
+
+  async function syncEntryToCalendar(entry) {
+    if (!calendarReady) {
+      setCalendarMessage("Choose a calendar in Admin");
+      return { eventId: "", note: "Calendar setup needed" };
+    }
+
+    const date = parseDate(entry.dueDate);
+    if (!date) {
+      setCalendarMessage("Use dates as YYYY-MM-DD");
+      return { eventId: "", note: "Calendar sync needs valid date" };
+    }
+
+    try {
+      if (entry.entryType === "task") {
+        const endDate = new Date(date);
+        endDate.setDate(endDate.getDate() + 1);
+        const eventId = await Calendar.createEventAsync(selectedCalendarId, {
+          title: `Task: ${entry.title.trim()}`,
+          notes: [entry.family, entry.note].filter(Boolean).join("\n"),
+          startDate: date,
+          endDate,
+          allDay: true,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        });
+        setCalendarMessage("Task added to calendar");
+        return { eventId, note: "Synced to calendar" };
+      }
+
+      const time = parseTime(entry.time);
+      const startDate = new Date(date);
+      startDate.setHours(time.hours, time.minutes, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setHours(endDate.getHours() + 1);
+
+      const eventId = await Calendar.createEventAsync(selectedCalendarId, {
+        title: entry.title.trim(),
+        location: entry.family,
+        notes: entry.note,
+        startDate,
+        endDate,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        alarms: [{ relativeOffset: -15 }]
+      });
+      setCalendarMessage("Appointment added to calendar");
+      return { eventId, note: "Synced to calendar" };
+    } catch (error) {
+      setCalendarMessage("Calendar sync failed");
+      return { eventId: "", note: "Calendar sync failed" };
+    }
+  }
 
   function openPlus() {
     if (tab === "cases") {
@@ -163,12 +283,13 @@ export default function App() {
     setFamilyForm({ name: "", type: "intervention", ipName: "", primarySubstance: "", contact: "", meta: "", notes: "", amount: "", paymentStatus: "pending" });
   }
 
-  function createScheduleEntry() {
+  async function createScheduleEntry() {
     if (!entryForm.title.trim()) return;
     const id = `${Date.now()}`;
+    const syncResult = await syncEntryToCalendar(entryForm);
 
     if (entryForm.entryType === "task") {
-      setTasks((items) => [...items, { id, title: entryForm.title, dueDate: entryForm.dueDate }]);
+      setTasks((items) => [...items, { id, title: entryForm.title, dueDate: entryForm.dueDate, googleEventId: syncResult.eventId }]);
       setScheduleFilter("task");
     } else {
       setScheduleItems((items) => [
@@ -178,7 +299,9 @@ export default function App() {
           title: entryForm.title,
           family: entryForm.family || "General",
           time: entryForm.time || "9:00",
-          note: `${entryForm.note || "Calendar item"} - Google Calendar sync queued`
+          date: entryForm.dueDate,
+          note: `${entryForm.note || "Calendar item"} - ${syncResult.note}`,
+          googleEventId: syncResult.eventId
         }
       ]);
       setScheduleFilter("schedule");
@@ -274,8 +397,8 @@ export default function App() {
             />
             <TextInput style={styles.input} placeholder="Title" value={entryForm.title} onChangeText={(title) => setEntryForm({ ...entryForm, title })} />
             <TextInput style={styles.input} placeholder="Family or contact" value={entryForm.family} onChangeText={(family) => setEntryForm({ ...entryForm, family })} />
-            <TextInput style={styles.input} placeholder="Time" value={entryForm.time} onChangeText={(time) => setEntryForm({ ...entryForm, time })} />
-            <TextInput style={styles.input} placeholder="Due date for tasks" value={entryForm.dueDate} onChangeText={(dueDate) => setEntryForm({ ...entryForm, dueDate })} />
+            {entryForm.entryType === "schedule" ? <TextInput style={styles.input} placeholder="Time" value={entryForm.time} onChangeText={(time) => setEntryForm({ ...entryForm, time })} /> : null}
+            <TextInput style={styles.input} placeholder={entryForm.entryType === "task" ? "Due date" : "Date"} value={entryForm.dueDate} onChangeText={(dueDate) => setEntryForm({ ...entryForm, dueDate })} />
             <TextInput style={styles.input} placeholder="Note" value={entryForm.note} onChangeText={(note) => setEntryForm({ ...entryForm, note })} />
             <FormActions onSave={createScheduleEntry} onCancel={() => setShowEntryForm(false)} saveLabel="Create item" />
           </FormCard>
@@ -318,7 +441,23 @@ export default function App() {
       <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         <SectionTitle title="Integrations" />
         <Row label="Supabase" value={hasSupabaseConfig ? "Configured" : "Missing"} tone={hasSupabaseConfig ? "green" : "rose"} />
-        <Row label="Google Calendar sync" value="On" tone="green" />
+        <Row label="Google Calendar sync" value={calendarReady ? "Ready" : "Needs setup"} tone={calendarReady ? "green" : "gold"} />
+        <Row label="Selected calendar" value={selectedCalendar ? calendarName(selectedCalendar) : calendarMessage} tone={calendarReady ? "green" : "blue"} />
+        <TouchableOpacity style={styles.actionButton} onPress={() => refreshCalendars(true)}>
+          <Text style={styles.actionText}>{calendarPermission === "granted" ? "Refresh calendars" : "Connect calendar"}</Text>
+        </TouchableOpacity>
+        {calendars.length ? (
+          <View style={styles.calendarList}>
+            {calendars.map((calendar) => (
+              <TouchableOpacity key={calendar.id} style={[styles.calendarChoice, selectedCalendarId === calendar.id && styles.calendarChoiceActive]} onPress={() => {
+                setSelectedCalendarId(calendar.id);
+                setCalendarMessage("Ready to sync");
+              }}>
+                <Text style={[styles.calendarChoiceText, selectedCalendarId === calendar.id && styles.calendarChoiceTextActive]}>{calendarName(calendar)}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
         <Row label="Push notifications" value="Ready" tone="blue" />
         <SectionTitle title="Archived families" />
         {archivedFamilies.length ? archivedFamilies.map((family) => (
@@ -563,6 +702,11 @@ const styles = StyleSheet.create({
   small: { color: "#68736e", fontSize: 12, fontWeight: "800" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
   docChip: { backgroundColor: "#dce8f5", color: "#2f5f8f", paddingHorizontal: 9, paddingVertical: 6, borderRadius: 999, fontSize: 11, fontWeight: "850" },
+  calendarList: { gap: 8, marginTop: 10, marginBottom: 10 },
+  calendarChoice: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 11, backgroundColor: "#fffdf8" },
+  calendarChoiceActive: { borderColor: "#2f6f5e", backgroundColor: "#d9ebe3" },
+  calendarChoiceText: { color: "#68736e", fontWeight: "850" },
+  calendarChoiceTextActive: { color: "#2f6f5e" },
   empty: { color: "#68736e", fontWeight: "700", padding: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#dbe2de", borderRadius: 8 },
   tabs: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#dbe2de", padding: 8, backgroundColor: "#fffdf8" },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center" },
