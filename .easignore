@@ -1,0 +1,11 @@
+.env
+.env.*
+.expo
+.secrets
+dist
+dist-check
+web-build
+inspect-ios-archive
+*.log
+ios
+android
