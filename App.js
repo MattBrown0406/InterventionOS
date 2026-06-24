@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as Calendar from "expo-calendar";
+import * as Contacts from "expo-contacts";
 import { hasSupabaseConfig } from "./src/lib/supabase";
 
 function toLocalISODate(date) {
@@ -93,6 +94,43 @@ function parseTime(timeText) {
   };
 }
 
+function participantTemplate() {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: "",
+    role: "",
+    phone: "",
+    email: "",
+    notes: "",
+    contactId: "",
+    syncStatus: "Not synced"
+  };
+}
+
+function normalizeParticipants(participants) {
+  return Array.isArray(participants) ? participants : [];
+}
+
+function participantContact(participant, familyName) {
+  const nameParts = participant.name.trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts[0] || participant.name.trim();
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+
+  return {
+    [Contacts.Fields.FirstName]: firstName,
+    [Contacts.Fields.LastName]: lastName,
+    [Contacts.Fields.Name]: participant.name.trim(),
+    [Contacts.Fields.Company]: familyName,
+    [Contacts.Fields.JobTitle]: participant.role.trim(),
+    [Contacts.Fields.PhoneNumbers]: participant.phone.trim()
+      ? [{ label: "mobile", number: participant.phone.trim(), isPrimary: true }]
+      : [],
+    [Contacts.Fields.Emails]: participant.email.trim()
+      ? [{ label: "work", email: participant.email.trim(), isPrimary: true }]
+      : []
+  };
+}
+
 export default function App() {
   const [tab, setTab] = useState("today");
   const [families, setFamilies] = useState(seedFamilies);
@@ -107,6 +145,8 @@ export default function App() {
   const [calendars, setCalendars] = useState([]);
   const [selectedCalendarId, setSelectedCalendarId] = useState("");
   const [calendarMessage, setCalendarMessage] = useState("Not connected");
+  const [contactsPermission, setContactsPermission] = useState("unknown");
+  const [contactsMessage, setContactsMessage] = useState("Not connected");
   const [familyForm, setFamilyForm] = useState({
     name: "",
     type: "intervention",
@@ -133,6 +173,10 @@ export default function App() {
   const todayTasks = tasks.filter((task) => task.dueDate === todayISODate);
   const selectedCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId);
   const calendarReady = calendarPermission === "granted" && Boolean(selectedCalendarId);
+  const contactsReady = contactsPermission === "granted";
+  const activeParticipants = activeFamilies.flatMap((family) =>
+    normalizeParticipants(family.participants).map((participant) => ({ ...participant, familyId: family.id, familyName: family.name }))
+  );
 
   const revenue = useMemo(() => {
     const caseRevenue = families.filter((family) => Number(family.amount) > 0);
@@ -158,7 +202,21 @@ export default function App() {
 
   useEffect(() => {
     refreshCalendars(false);
+    refreshContacts(false);
   }, []);
+
+  async function refreshContacts(requestAccess = false) {
+    try {
+      const permission = requestAccess
+        ? await Contacts.requestPermissionsAsync()
+        : await Contacts.getPermissionsAsync();
+
+      setContactsPermission(permission.status);
+      setContactsMessage(permission.status === "granted" ? "Ready to sync" : requestAccess ? "Contacts access was not approved" : "Not connected");
+    } catch (error) {
+      setContactsMessage("Contacts setup needs attention");
+    }
+  }
 
   async function refreshCalendars(requestAccess = false) {
     try {
@@ -266,7 +324,7 @@ export default function App() {
       primarySubstance: familyForm.primarySubstance.trim(),
       meta: familyForm.meta,
       status: "New",
-      participants: "",
+      participants: [],
       contact: familyForm.contact,
       notes: familyForm.notes,
       focus: "",
@@ -376,7 +434,7 @@ export default function App() {
             <FormActions onSave={createFamily} onCancel={() => setShowFamilyForm(false)} saveLabel="Create family" />
           </FormCard>
         ) : null}
-        {visibleFamilies.map((family) => <CaseCard key={family.id} family={family} expanded={expandedCase === family.id} onExpand={() => setExpandedCase(expandedCase === family.id ? "" : family.id)} onUpdate={updateFamily} />)}
+        {visibleFamilies.map((family) => <CaseCard key={family.id} family={family} expanded={expandedCase === family.id} onExpand={() => setExpandedCase(expandedCase === family.id ? "" : family.id)} onUpdate={updateFamily} onSyncParticipant={syncParticipantToContacts} contactsReady={contactsReady} />)}
         {!visibleFamilies.length ? <Text style={styles.empty}>No active {caseFilter} cases yet.</Text> : null}
       </ScrollView>
     );
@@ -458,6 +516,15 @@ export default function App() {
             ))}
           </View>
         ) : null}
+        <Row label="Contacts sync" value={contactsReady ? "Ready" : "Needs setup"} tone={contactsReady ? "green" : "gold"} />
+        <Row label="Active participants" value={`${activeParticipants.length}`} tone="blue" />
+        <TouchableOpacity style={styles.actionButton} onPress={() => refreshContacts(true)}>
+          <Text style={styles.actionText}>{contactsReady ? "Refresh contacts access" : "Connect contacts"}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.actionButton, !contactsReady && styles.disabledButton]} onPress={syncAllParticipantsToContacts}>
+          <Text style={styles.actionText}>Sync active participants</Text>
+        </TouchableOpacity>
+        <Text style={styles.syncNote}>{contactsMessage}</Text>
         <Row label="Push notifications" value="Ready" tone="blue" />
         <SectionTitle title="Archived families" />
         {archivedFamilies.length ? archivedFamilies.map((family) => (
@@ -471,6 +538,66 @@ export default function App() {
         )) : <Text style={styles.empty}>Archived families will appear here.</Text>}
       </ScrollView>
     );
+  }
+
+  async function syncParticipantToContacts(familyId, participantId) {
+    const family = families.find((item) => item.id === familyId);
+    const participant = normalizeParticipants(family?.participants).find((item) => item.id === participantId);
+
+    if (!family || !participant?.name.trim()) return;
+
+    if (!contactsReady) {
+      setContactsMessage("Connect contacts in Admin first");
+      updateParticipant(familyId, participantId, { syncStatus: "Contacts setup needed" });
+      return;
+    }
+
+    try {
+      const contact = participantContact(participant, family.name);
+      let contactId = participant.contactId;
+
+      if (contactId) {
+        try {
+          contactId = await Contacts.updateContactAsync({ ...contact, id: contactId });
+        } catch (error) {
+          contactId = await Contacts.addContactAsync(contact);
+        }
+      } else {
+        contactId = await Contacts.addContactAsync(contact);
+      }
+
+      updateParticipant(familyId, participantId, { contactId, syncStatus: "Synced" });
+      setContactsMessage("Participant synced to Contacts");
+    } catch (error) {
+      updateParticipant(familyId, participantId, { syncStatus: "Sync failed" });
+      setContactsMessage("Contacts sync failed");
+    }
+  }
+
+  async function syncAllParticipantsToContacts() {
+    if (!contactsReady) {
+      setContactsMessage("Connect contacts first");
+      return;
+    }
+
+    for (const participant of activeParticipants) {
+      if (participant.name.trim()) {
+        await syncParticipantToContacts(participant.familyId, participant.id);
+      }
+    }
+  }
+
+  function updateParticipant(familyId, participantId, patch) {
+    setFamilies((items) => items.map((family) => {
+      if (family.id !== familyId) return family;
+
+      return {
+        ...family,
+        participants: normalizeParticipants(family.participants).map((participant) => (
+          participant.id === participantId ? { ...participant, ...patch } : participant
+        ))
+      };
+    }));
   }
 
   return (
@@ -506,7 +633,7 @@ export default function App() {
   );
 }
 
-function CaseCard({ family, expanded, onExpand, onUpdate }) {
+function CaseCard({ family, expanded, onExpand, onUpdate, onSyncParticipant, contactsReady }) {
   const isIntervention = family.type === "intervention";
 
   return (
@@ -522,7 +649,7 @@ function CaseCard({ family, expanded, onExpand, onUpdate }) {
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.caseDetails}>
-          <EditableBlock title="Participants" value={family.participants} onChange={(participants) => onUpdate(family.id, { participants })} multiline />
+          <ParticipantsBlock family={family} onUpdate={onUpdate} onSyncParticipant={onSyncParticipant} contactsReady={contactsReady} />
           <EditableBlock title="IP name" value={family.ipName} onChange={(ipName) => onUpdate(family.id, { ipName })} />
           <EditableBlock title="Primary substance used" value={family.primarySubstance} onChange={(primarySubstance) => onUpdate(family.id, { primarySubstance })} />
           <EditableBlock title="Contact" value={family.contact} onChange={(contact) => onUpdate(family.id, { contact })} multiline />
@@ -548,6 +675,65 @@ function CaseCard({ family, expanded, onExpand, onUpdate }) {
           </TouchableOpacity>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function ParticipantsBlock({ family, onUpdate, onSyncParticipant, contactsReady }) {
+  const [draft, setDraft] = useState(participantTemplate());
+  const participants = normalizeParticipants(family.participants);
+
+  function updateDraft(patch) {
+    setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function addParticipant() {
+    if (!draft.name.trim()) return;
+    onUpdate(family.id, { participants: [...participants, { ...draft, name: draft.name.trim() }] });
+    setDraft(participantTemplate());
+  }
+
+  function updateParticipant(participantId, patch) {
+    onUpdate(family.id, {
+      participants: participants.map((participant) => (
+        participant.id === participantId ? { ...participant, ...patch, syncStatus: patch.contactId ? participant.syncStatus : "Needs sync" } : participant
+      ))
+    });
+  }
+
+  function removeParticipant(participantId) {
+    onUpdate(family.id, { participants: participants.filter((participant) => participant.id !== participantId) });
+  }
+
+  return (
+    <View style={styles.detailBlock}>
+      <Text style={styles.blockTitle}>Participants</Text>
+      {participants.map((participant) => (
+        <View key={participant.id} style={styles.participantCard}>
+          <TextInput style={styles.input} placeholder="Name" value={participant.name} onChangeText={(name) => updateParticipant(participant.id, { name })} />
+          <TextInput style={styles.input} placeholder="Role" value={participant.role} onChangeText={(role) => updateParticipant(participant.id, { role })} />
+          <TextInput style={styles.input} placeholder="Phone" keyboardType="phone-pad" value={participant.phone} onChangeText={(phone) => updateParticipant(participant.id, { phone })} />
+          <TextInput style={styles.input} placeholder="Email" keyboardType="email-address" autoCapitalize="none" value={participant.email} onChangeText={(email) => updateParticipant(participant.id, { email })} />
+          <TextInput style={[styles.input, styles.textArea]} placeholder="Participant notes" value={participant.notes} onChangeText={(notes) => updateParticipant(participant.id, { notes })} multiline />
+          <Row label="Contacts" value={participant.syncStatus || "Not synced"} tone={participant.syncStatus === "Synced" ? "green" : "blue"} />
+          <View style={styles.formActions}>
+            <TouchableOpacity style={[styles.actionButton, !contactsReady && styles.disabledButton]} onPress={() => onSyncParticipant(family.id, participant.id)}>
+              <Text style={styles.actionText}>{participant.contactId ? "Update contact" : "Sync contact"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelButton} onPress={() => removeParticipant(participant.id)}>
+              <Text style={styles.cancelText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+      <TextInput style={styles.input} placeholder="Participant name" value={draft.name} onChangeText={(name) => updateDraft({ name })} />
+      <TextInput style={styles.input} placeholder="Role" value={draft.role} onChangeText={(role) => updateDraft({ role })} />
+      <TextInput style={styles.input} placeholder="Phone" keyboardType="phone-pad" value={draft.phone} onChangeText={(phone) => updateDraft({ phone })} />
+      <TextInput style={styles.input} placeholder="Email" keyboardType="email-address" autoCapitalize="none" value={draft.email} onChangeText={(email) => updateDraft({ email })} />
+      <TextInput style={[styles.input, styles.textArea]} placeholder="Participant notes" value={draft.notes} onChangeText={(notes) => updateDraft({ notes })} multiline />
+      <TouchableOpacity style={styles.actionButton} onPress={addParticipant}>
+        <Text style={styles.actionText}>Add participant</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -688,8 +874,10 @@ const styles = StyleSheet.create({
   archiveText: { color: "#a64949", fontWeight: "900" },
   cancelButton: { borderRadius: 8, borderWidth: 1, borderColor: "#dbe2de", padding: 11, alignItems: "center" },
   cancelText: { color: "#68736e", fontWeight: "900" },
+  disabledButton: { opacity: 0.55 },
   formCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 12, backgroundColor: "#fffdf8", marginBottom: 10 },
   formActions: { flexDirection: "row", gap: 8 },
+  participantCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 10, backgroundColor: "#fffdf8", marginBottom: 10 },
   segmented: { flexDirection: "row", gap: 4, borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 4, marginBottom: 10, backgroundColor: "#fffdf8" },
   segment: { flex: 1, minHeight: 36, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   segmentActive: { backgroundColor: "#2f6f5e" },
@@ -707,6 +895,7 @@ const styles = StyleSheet.create({
   calendarChoiceActive: { borderColor: "#2f6f5e", backgroundColor: "#d9ebe3" },
   calendarChoiceText: { color: "#68736e", fontWeight: "850" },
   calendarChoiceTextActive: { color: "#2f6f5e" },
+  syncNote: { color: "#68736e", fontWeight: "750", fontSize: 12, marginTop: 8, marginBottom: 10 },
   empty: { color: "#68736e", fontWeight: "700", padding: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#dbe2de", borderRadius: 8 },
   tabs: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#dbe2de", padding: 8, backgroundColor: "#fffdf8" },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center" },

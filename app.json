@@ -10,11 +10,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.interventionos",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCalendarsUsageDescription": "InterventionOS adds appointments and dated tasks to the calendar you select.",
-        "NSCalendarsFullAccessUsageDescription": "InterventionOS adds appointments and dated tasks to the calendar you select."
+        "NSCalendarsFullAccessUsageDescription": "InterventionOS adds appointments and dated tasks to the calendar you select.",
+        "NSContactsUsageDescription": "InterventionOS saves intervention participants to the Contacts account configured on your iPhone."
       }
     },
     "android": {
@@ -28,6 +29,12 @@
         "expo-calendar",
         {
           "calendarPermission": "InterventionOS adds appointments and dated tasks to the calendar you select."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "InterventionOS saves intervention participants to the Contacts account configured on your iPhone."
         }
       ]
     ],
