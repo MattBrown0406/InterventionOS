@@ -13,6 +13,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import * as Calendar from "expo-calendar";
 import * as Contacts from "expo-contacts";
+import * as FileSystem from "expo-file-system";
 import { hasSupabaseConfig } from "./src/lib/supabase";
 
 function toLocalISODate(date) {
@@ -35,6 +36,8 @@ const seedFamilies = [];
 const seedSchedule = [];
 
 const seedTasks = [];
+
+const STORAGE_FILE = `${FileSystem.documentDirectory}interventionos-data.json`;
 
 const baselineRevenue = {
   ytdCollected: 0,
@@ -131,6 +134,10 @@ function participantContact(participant, familyName) {
   };
 }
 
+function storedArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 export default function App() {
   const [tab, setTab] = useState("today");
   const [families, setFamilies] = useState(seedFamilies);
@@ -147,6 +154,8 @@ export default function App() {
   const [calendarMessage, setCalendarMessage] = useState("Not connected");
   const [contactsPermission, setContactsPermission] = useState("unknown");
   const [contactsMessage, setContactsMessage] = useState("Not connected");
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("Loading saved data");
   const [familyForm, setFamilyForm] = useState({
     name: "",
     type: "intervention",
@@ -201,9 +210,66 @@ export default function App() {
   }, [families]);
 
   useEffect(() => {
+    loadSavedData();
     refreshCalendars(false);
     refreshContacts(false);
   }, []);
+
+  useEffect(() => {
+    if (!dataLoaded) return undefined;
+
+    const saveTimer = setTimeout(() => {
+      saveAppData();
+    }, 500);
+
+    return () => clearTimeout(saveTimer);
+  }, [dataLoaded, families, scheduleItems, tasks, caseFilter, scheduleFilter, selectedCalendarId]);
+
+  async function loadSavedData() {
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(STORAGE_FILE);
+
+      if (!fileInfo.exists) {
+        setSaveMessage("Ready to save locally");
+        setDataLoaded(true);
+        return;
+      }
+
+      const rawData = await FileSystem.readAsStringAsync(STORAGE_FILE);
+      const savedData = JSON.parse(rawData);
+
+      setFamilies(storedArray(savedData.families));
+      setScheduleItems(storedArray(savedData.scheduleItems));
+      setTasks(storedArray(savedData.tasks));
+      setCaseFilter(savedData.caseFilter || "intervention");
+      setScheduleFilter(savedData.scheduleFilter || "schedule");
+      setSelectedCalendarId(savedData.selectedCalendarId || "");
+      setSaveMessage("Saved data restored");
+    } catch (error) {
+      setSaveMessage("Saved data could not be loaded");
+    } finally {
+      setDataLoaded(true);
+    }
+  }
+
+  async function saveAppData() {
+    try {
+      const data = {
+        families,
+        scheduleItems,
+        tasks,
+        caseFilter,
+        scheduleFilter,
+        selectedCalendarId,
+        savedAt: new Date().toISOString()
+      };
+
+      await FileSystem.writeAsStringAsync(STORAGE_FILE, JSON.stringify(data));
+      setSaveMessage("All changes saved on this iPhone");
+    } catch (error) {
+      setSaveMessage("Local save needs attention");
+    }
+  }
 
   async function refreshContacts(requestAccess = false) {
     try {
@@ -499,6 +565,7 @@ export default function App() {
       <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         <SectionTitle title="Integrations" />
         <Row label="Supabase" value={hasSupabaseConfig ? "Configured" : "Missing"} tone={hasSupabaseConfig ? "green" : "rose"} />
+        <Row label="Local data" value={saveMessage} tone={saveMessage.includes("attention") || saveMessage.includes("could not") ? "gold" : "green"} />
         <Row label="Google Calendar sync" value={calendarReady ? "Ready" : "Needs setup"} tone={calendarReady ? "green" : "gold"} />
         <Row label="Selected calendar" value={selectedCalendar ? calendarName(selectedCalendar) : calendarMessage} tone={calendarReady ? "green" : "blue"} />
         <TouchableOpacity style={styles.actionButton} onPress={() => refreshCalendars(true)}>
