@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -136,6 +137,20 @@ function participantContact(participant, familyName) {
 
 function storedArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function callPhoneNumber(phone) {
+  const callablePhone = phone.replace(/[^\d+]/g, "");
+  if (!callablePhone) return;
+
+  Linking.openURL(`tel:${callablePhone}`).catch(() => undefined);
+}
+
+function openEmailDraft(email) {
+  const emailAddress = email.trim();
+  if (!emailAddress) return;
+
+  Linking.openURL(`mailto:${emailAddress}`).catch(() => undefined);
 }
 
 export default function App() {
@@ -748,6 +763,7 @@ function CaseCard({ family, expanded, onExpand, onUpdate, onSyncParticipant, con
 
 function ParticipantsBlock({ family, onUpdate, onSyncParticipant, contactsReady }) {
   const [draft, setDraft] = useState(participantTemplate());
+  const [editingParticipantId, setEditingParticipantId] = useState("");
   const participants = normalizeParticipants(family.participants);
 
   function updateDraft(patch) {
@@ -756,7 +772,19 @@ function ParticipantsBlock({ family, onUpdate, onSyncParticipant, contactsReady 
 
   function addParticipant() {
     if (!draft.name.trim()) return;
-    onUpdate(family.id, { participants: [...participants, { ...draft, name: draft.name.trim() }] });
+    onUpdate(family.id, {
+      participants: [
+        ...participants,
+        {
+          ...draft,
+          name: draft.name.trim(),
+          role: draft.role.trim(),
+          phone: draft.phone.trim(),
+          email: draft.email.trim(),
+          notes: draft.notes.trim()
+        }
+      ]
+    });
     setDraft(participantTemplate());
   }
 
@@ -777,29 +805,66 @@ function ParticipantsBlock({ family, onUpdate, onSyncParticipant, contactsReady 
       <Text style={styles.blockTitle}>Participants</Text>
       {participants.map((participant) => (
         <View key={participant.id} style={styles.participantCard}>
-          <TextInput style={styles.input} placeholder="Name" value={participant.name} onChangeText={(name) => updateParticipant(participant.id, { name })} />
-          <TextInput style={styles.input} placeholder="Role" value={participant.role} onChangeText={(role) => updateParticipant(participant.id, { role })} />
-          <TextInput style={styles.input} placeholder="Phone" keyboardType="phone-pad" value={participant.phone} onChangeText={(phone) => updateParticipant(participant.id, { phone })} />
-          <TextInput style={styles.input} placeholder="Email" keyboardType="email-address" autoCapitalize="none" value={participant.email} onChangeText={(email) => updateParticipant(participant.id, { email })} />
-          <TextInput style={[styles.input, styles.textArea]} placeholder="Participant notes" value={participant.notes} onChangeText={(notes) => updateParticipant(participant.id, { notes })} multiline />
-          <Row label="Contacts" value={participant.syncStatus || "Not synced"} tone={participant.syncStatus === "Synced" ? "green" : "blue"} />
-          <View style={styles.formActions}>
-            <TouchableOpacity style={[styles.actionButton, !contactsReady && styles.disabledButton]} onPress={() => onSyncParticipant(family.id, participant.id)}>
-              <Text style={styles.actionText}>{participant.contactId ? "Update contact" : "Sync contact"}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={() => removeParticipant(participant.id)}>
-              <Text style={styles.cancelText}>Remove</Text>
-            </TouchableOpacity>
-          </View>
+          {editingParticipantId === participant.id ? (
+            <>
+              <TextInput style={styles.input} placeholder="Name" value={participant.name} onChangeText={(name) => updateParticipant(participant.id, { name })} />
+              <TextInput style={styles.input} placeholder="Role" value={participant.role} onChangeText={(role) => updateParticipant(participant.id, { role })} />
+              <TextInput style={styles.input} placeholder="Phone" keyboardType="phone-pad" value={participant.phone} onChangeText={(phone) => updateParticipant(participant.id, { phone })} />
+              <TextInput style={styles.input} placeholder="Email" keyboardType="email-address" autoCapitalize="none" value={participant.email} onChangeText={(email) => updateParticipant(participant.id, { email })} />
+              <TextInput style={[styles.input, styles.textArea]} placeholder="Participant notes" value={participant.notes} onChangeText={(notes) => updateParticipant(participant.id, { notes })} multiline />
+              <View style={styles.formActions}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => setEditingParticipantId("")}>
+                  <Text style={styles.actionText}>Save participant</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelButton} onPress={() => removeParticipant(participant.id)}>
+                  <Text style={styles.cancelText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.participantHeader}>
+                <View style={styles.caseText}>
+                  <Text style={styles.participantName}>{participant.name}</Text>
+                  <Text style={styles.muted}>{participant.role || "Role not set"}</Text>
+                </View>
+                <TouchableOpacity style={styles.smallButton} onPress={() => setEditingParticipantId(participant.id)}>
+                  <Text style={styles.smallButtonText}>Edit</Text>
+                </TouchableOpacity>
+              </View>
+              {participant.phone ? (
+                <TouchableOpacity style={styles.contactLink} onPress={() => callPhoneNumber(participant.phone)}>
+                  <Text style={styles.contactLabel}>Phone</Text>
+                  <Text style={styles.contactValue}>{participant.phone}</Text>
+                </TouchableOpacity>
+              ) : (
+                <Row label="Phone" value="Not set" />
+              )}
+              {participant.email ? (
+                <TouchableOpacity style={styles.contactLink} onPress={() => openEmailDraft(participant.email)}>
+                  <Text style={styles.contactLabel}>Email</Text>
+                  <Text style={styles.contactValue}>{participant.email}</Text>
+                </TouchableOpacity>
+              ) : (
+                <Row label="Email" value="Not set" />
+              )}
+              {participant.notes ? <Text style={styles.participantNotes}>{participant.notes}</Text> : null}
+              <Row label="Contacts" value={participant.syncStatus || "Not synced"} tone={participant.syncStatus === "Synced" ? "green" : "blue"} />
+              <TouchableOpacity style={[styles.actionButton, !contactsReady && styles.disabledButton]} onPress={() => onSyncParticipant(family.id, participant.id)}>
+                <Text style={styles.actionText}>{participant.contactId ? "Update contact" : "Sync contact"}</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       ))}
+      {participants.length ? <Text style={styles.blockTitle}>Add another participant</Text> : null}
       <TextInput style={styles.input} placeholder="Participant name" value={draft.name} onChangeText={(name) => updateDraft({ name })} />
       <TextInput style={styles.input} placeholder="Role" value={draft.role} onChangeText={(role) => updateDraft({ role })} />
       <TextInput style={styles.input} placeholder="Phone" keyboardType="phone-pad" value={draft.phone} onChangeText={(phone) => updateDraft({ phone })} />
       <TextInput style={styles.input} placeholder="Email" keyboardType="email-address" autoCapitalize="none" value={draft.email} onChangeText={(email) => updateDraft({ email })} />
       <TextInput style={[styles.input, styles.textArea]} placeholder="Participant notes" value={draft.notes} onChangeText={(notes) => updateDraft({ notes })} multiline />
       <TouchableOpacity style={styles.actionButton} onPress={addParticipant}>
-        <Text style={styles.actionText}>Add participant</Text>
+        <Text style={styles.actionText}>Save participant</Text>
       </TouchableOpacity>
     </View>
   );
@@ -945,6 +1010,14 @@ const styles = StyleSheet.create({
   formCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 12, backgroundColor: "#fffdf8", marginBottom: 10 },
   formActions: { flexDirection: "row", gap: 8 },
   participantCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 10, backgroundColor: "#fffdf8", marginBottom: 10 },
+  participantHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  participantName: { fontSize: 14, fontWeight: "900", color: "#17211d" },
+  participantNotes: { color: "#68736e", fontWeight: "650", fontSize: 12, lineHeight: 17, marginBottom: 8 },
+  smallButton: { borderRadius: 8, borderWidth: 1, borderColor: "#dbe2de", paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#fffdf8" },
+  smallButtonText: { color: "#2f6f5e", fontWeight: "900" },
+  contactLink: { minHeight: 40, borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 10, backgroundColor: "#fffdf8", flexDirection: "row", justifyContent: "space-between", gap: 8, marginBottom: 8 },
+  contactLabel: { flex: 1, color: "#17211d", fontWeight: "750" },
+  contactValue: { color: "#2f5f8f", fontWeight: "900", flexShrink: 1, textAlign: "right" },
   segmented: { flexDirection: "row", gap: 4, borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 4, marginBottom: 10, backgroundColor: "#fffdf8" },
   segment: { flex: 1, minHeight: 36, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   segmentActive: { backgroundColor: "#2f6f5e" },
