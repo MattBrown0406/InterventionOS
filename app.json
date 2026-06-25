@@ -19,25 +19,17 @@
       }
     },
     "android": {
-      "package": "com.interventionos"
+      "package": "com.interventionos",
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
+      ]
     },
     "web": {
       "bundler": "metro"
     },
-    "plugins": [
-      [
-        "expo-calendar",
-        {
-          "calendarPermission": "InterventionOS adds appointments and dated tasks to the calendar you select."
-        }
-      ],
-      [
-        "expo-contacts",
-        {
-          "contactsPermission": "InterventionOS saves intervention participants to the Contacts account configured on your iPhone."
-        }
-      ]
-    ],
     "extra": {
       "eas": {
         "projectId": "e9c1db37-f9a4-4596-88b8-c99abdf9bc61"
