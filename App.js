@@ -16,6 +16,7 @@ import * as Calendar from "expo-calendar";
 import * as Contacts from "expo-contacts";
 import * as FileSystem from "expo-file-system";
 import { hasSupabaseConfig } from "./src/lib/supabase";
+import { getCurrentUser, loadCloudData, saveCloudData, signInInterventionOS, signOutInterventionOS } from "./src/lib/cloudData";
 
 function toLocalISODate(date) {
   const year = date.getFullYear();
@@ -169,6 +170,9 @@ export default function App() {
   const [calendarMessage, setCalendarMessage] = useState("Not connected");
   const [contactsPermission, setContactsPermission] = useState("unknown");
   const [contactsMessage, setContactsMessage] = useState("Not connected");
+  const [cloudUser, setCloudUser] = useState(null);
+  const [cloudMessage, setCloudMessage] = useState(hasSupabaseConfig ? "Cloud ready - sign in to sync" : "Supabase missing");
+  const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [dataLoaded, setDataLoaded] = useState(false);
   const [saveMessage, setSaveMessage] = useState("Loading saved data");
   const [familyForm, setFamilyForm] = useState({
@@ -238,7 +242,7 @@ export default function App() {
     }, 500);
 
     return () => clearTimeout(saveTimer);
-  }, [dataLoaded, families, scheduleItems, tasks, caseFilter, scheduleFilter, selectedCalendarId]);
+  }, [dataLoaded, families, scheduleItems, tasks, caseFilter, scheduleFilter, selectedCalendarId, cloudUser]);
 
   async function loadSavedData() {
     try {
@@ -281,8 +285,67 @@ export default function App() {
 
       await FileSystem.writeAsStringAsync(STORAGE_FILE, JSON.stringify(data));
       setSaveMessage("All changes saved on this iPhone");
+
+      if (cloudUser) {
+        try {
+          await saveCloudData({ families, scheduleItems, tasks });
+          setCloudMessage("Cloud sync complete");
+        } catch (error) {
+          setCloudMessage("Cloud sync needs attention");
+        }
+      }
     } catch (error) {
       setSaveMessage("Local save needs attention");
+    }
+  }
+
+  async function connectCloud() {
+    if (!hasSupabaseConfig) {
+      setCloudMessage("Supabase env is missing");
+      return;
+    }
+
+    try {
+      const user = await signInInterventionOS(authForm.email, authForm.password);
+      setCloudUser(user);
+      setCloudMessage("Signed in - loading cloud data");
+      const cloudData = await loadCloudData();
+      if (cloudData) {
+        setFamilies(cloudData.families);
+        setScheduleItems(cloudData.scheduleItems);
+        setTasks(cloudData.tasks);
+        setSaveMessage("Cloud data loaded");
+        setCloudMessage("Cloud sync connected");
+      }
+    } catch (error) {
+      setCloudMessage("Cloud sign-in failed");
+    }
+  }
+
+  async function disconnectCloud() {
+    await signOutInterventionOS();
+    setCloudUser(null);
+    setCloudMessage("Signed out of cloud sync");
+  }
+
+  async function refreshCloud() {
+    if (!hasSupabaseConfig) return;
+    try {
+      const user = await getCurrentUser();
+      setCloudUser(user);
+      if (!user) {
+        setCloudMessage("Cloud ready - sign in to sync");
+        return;
+      }
+      const cloudData = await loadCloudData();
+      if (cloudData) {
+        setFamilies(cloudData.families);
+        setScheduleItems(cloudData.scheduleItems);
+        setTasks(cloudData.tasks);
+        setCloudMessage("Cloud data refreshed");
+      }
+    } catch (error) {
+      setCloudMessage("Cloud refresh failed");
     }
   }
 
@@ -580,6 +643,26 @@ export default function App() {
       <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent} keyboardShouldPersistTaps="handled">
         <SectionTitle title="Integrations" />
         <Row label="Supabase" value={hasSupabaseConfig ? "Configured" : "Missing"} tone={hasSupabaseConfig ? "green" : "rose"} />
+        <Row label="Cloud sync" value={cloudUser ? `Connected as ${cloudUser.email || "admin"}` : cloudMessage} tone={cloudUser ? "green" : hasSupabaseConfig ? "gold" : "rose"} />
+        {hasSupabaseConfig && !cloudUser ? (
+          <FormCard>
+            <TextInput style={styles.input} placeholder="Admin email" autoCapitalize="none" keyboardType="email-address" value={authForm.email} onChangeText={(email) => setAuthForm({ ...authForm, email })} />
+            <TextInput style={styles.input} placeholder="Password" secureTextEntry value={authForm.password} onChangeText={(password) => setAuthForm({ ...authForm, password })} />
+            <TouchableOpacity style={styles.actionButton} onPress={connectCloud}>
+              <Text style={styles.actionText}>Connect cloud sync</Text>
+            </TouchableOpacity>
+          </FormCard>
+        ) : null}
+        {cloudUser ? (
+          <View>
+            <TouchableOpacity style={styles.actionButton} onPress={refreshCloud}>
+              <Text style={styles.actionText}>Refresh from cloud</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelButton} onPress={disconnectCloud}>
+              <Text style={styles.cancelText}>Disconnect cloud sync</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         <Row label="Local data" value={saveMessage} tone={saveMessage.includes("attention") || saveMessage.includes("could not") ? "gold" : "green"} />
         <Row label="Google Calendar sync" value={calendarReady ? "Ready" : "Needs setup"} tone={calendarReady ? "green" : "gold"} />
         <Row label="Selected calendar" value={selectedCalendar ? calendarName(selectedCalendar) : calendarMessage} tone={calendarReady ? "green" : "blue"} />

@@ -1,0 +1,4 @@
+project_id = "interventionos"
+
+[functions.interventionos-agent]
+verify_jwt = false
