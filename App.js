@@ -223,6 +223,7 @@ export default function App() {
   const [calendarPermission, setCalendarPermission] = useState("unknown");
   const [calendars, setCalendars] = useState([]);
   const [selectedCalendarId, setSelectedCalendarId] = useState("");
+  const [calendarEditMode, setCalendarEditMode] = useState(false);
   const [calendarMessage, setCalendarMessage] = useState("Not connected");
   const [contactsPermission, setContactsPermission] = useState("unknown");
   const [contactsMessage, setContactsMessage] = useState("Not connected");
@@ -320,6 +321,7 @@ export default function App() {
 
       if (!fileInfo.exists) {
         setSaveMessage("Ready to save locally");
+        setCalendarEditMode(true);
         setDataLoaded(true);
         return;
       }
@@ -333,6 +335,7 @@ export default function App() {
       setCaseFilter(savedData.caseFilter || "intervention");
       setScheduleFilter(savedData.scheduleFilter || "schedule");
       setSelectedCalendarId(savedData.selectedCalendarId || "");
+      setCalendarEditMode(!savedData.selectedCalendarId);
       setSaveMessage("Saved data restored");
     } catch (error) {
       setSaveMessage("Saved data could not be loaded");
@@ -518,6 +521,7 @@ export default function App() {
       if (permission.status !== "granted") {
         setCalendars([]);
         setSelectedCalendarId("");
+        setCalendarEditMode(true);
         setCalendarMessage(requestAccess ? "Calendar access was not approved" : "Not connected");
         return;
       }
@@ -825,11 +829,17 @@ export default function App() {
         <TouchableOpacity style={styles.actionButton} onPress={() => refreshCalendars(true)}>
           <Text style={styles.actionText}>{calendarPermission === "granted" ? "Refresh calendars" : "Connect calendar"}</Text>
         </TouchableOpacity>
-        {calendars.length ? (
+        {selectedCalendar && !calendarEditMode ? (
+          <TouchableOpacity style={styles.cancelButton} onPress={() => setCalendarEditMode(true)}>
+            <Text style={styles.cancelText}>Edit selected calendar</Text>
+          </TouchableOpacity>
+        ) : null}
+        {calendars.length && (calendarEditMode || !selectedCalendar) ? (
           <View style={styles.calendarList}>
             {calendars.map((calendar) => (
               <TouchableOpacity key={calendar.id} style={[styles.calendarChoice, selectedCalendarId === calendar.id && styles.calendarChoiceActive]} onPress={() => {
                 setSelectedCalendarId(calendar.id);
+                setCalendarEditMode(false);
                 setCalendarMessage("Ready to sync");
               }}>
                 <Text style={[styles.calendarChoiceText, selectedCalendarId === calendar.id && styles.calendarChoiceTextActive]}>{calendarName(calendar)}</Text>
