@@ -410,7 +410,7 @@ export default function App() {
     setCloudMessage("Signed out of cloud sync");
   }
 
-  async function syncLocalToCloud() {
+  async function syncCloudExchange() {
     if (!hasSupabaseConfig) return;
     try {
       const user = await getCurrentUser();
@@ -419,22 +419,8 @@ export default function App() {
         setCloudMessage("Cloud ready - sign in to sync");
         return;
       }
-      await saveCloudData({ families, scheduleItems, tasks });
-      setCloudMessage("Local data uploaded to cloud");
-    } catch (error) {
-      setCloudMessage("Cloud upload failed");
-    }
-  }
+      setCloudMessage("Exchanging newest data with cloud");
 
-  async function refreshCloud() {
-    if (!hasSupabaseConfig) return;
-    try {
-      const user = await getCurrentUser();
-      setCloudUser(user);
-      if (!user) {
-        setCloudMessage("Cloud ready - sign in to sync");
-        return;
-      }
       const cloudData = await loadCloudData();
       if (cloudData) {
         const localData = { families, scheduleItems, tasks };
@@ -443,7 +429,7 @@ export default function App() {
 
         if (!cloudHasRecords && localHasRecords) {
           await saveCloudData(localData);
-          setCloudMessage("Cloud was empty - local data uploaded instead");
+          setCloudMessage("Synced - phone data sent to empty cloud");
           return;
         }
 
@@ -460,10 +446,10 @@ export default function App() {
         setScheduleItems(mergedData.scheduleItems);
         setTasks(mergedData.tasks);
         await saveCloudData(mergedData);
-        setCloudMessage("Newest phone/cloud data merged");
+        setCloudMessage("Synced - newest data exchanged both ways");
       }
     } catch (error) {
-      setCloudMessage("Cloud refresh failed");
+      setCloudMessage("Cloud sync failed");
     }
   }
 
@@ -809,11 +795,8 @@ export default function App() {
         ) : null}
         {cloudUser ? (
           <View>
-            <TouchableOpacity style={styles.actionButton} onPress={syncLocalToCloud}>
-              <Text style={styles.actionText}>Sync local data to cloud</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={refreshCloud}>
-              <Text style={styles.actionText}>Pull from cloud safely</Text>
+            <TouchableOpacity style={styles.actionButton} onPress={syncCloudExchange}>
+              <Text style={styles.actionText}>Sync with cloud</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelButton} onPress={disconnectCloud}>
               <Text style={styles.cancelText}>Disconnect cloud sync</Text>
