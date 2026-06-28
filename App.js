@@ -46,6 +46,57 @@ function hasRecords(data) {
   return Boolean(data?.families?.length || data?.scheduleItems?.length || data?.tasks?.length);
 }
 
+const interventionChecklistItems = [
+  { key: "contractSent", label: "Contract sent" },
+  { key: "contractSigned", label: "Contract signed" },
+  { key: "paymentReceived", label: "Payment received" },
+  { key: "prepCallCompleted", label: "Prep call completed" },
+  { key: "treatmentSelected", label: "Treatment selected" },
+  { key: "interventionDateSet", label: "Intervention date set" },
+  { key: "interventionCompleted", label: "Intervention completed" }
+];
+
+function defaultChecklist() {
+  return interventionChecklistItems.reduce((items, item) => ({ ...items, [item.key]: false }), {});
+}
+
+function normalizeChecklist(checklist) {
+  return { ...defaultChecklist(), ...(checklist && typeof checklist === "object" ? checklist : {}) };
+}
+
+function recordKey(item) {
+  return String(item?.localId || item?.local_id || item?.id || item?.cloudId || "");
+}
+
+function newerRecord(localRecord, cloudRecord) {
+  const localTime = Date.parse(localRecord?.updatedAt || "") || 0;
+  const cloudTime = Date.parse(cloudRecord?.updatedAt || "") || 0;
+  if (cloudTime > localTime) return cloudRecord;
+  return localRecord || cloudRecord;
+}
+
+function mergeByNewest(localItems = [], cloudItems = []) {
+  const merged = new Map();
+  cloudItems.forEach((item) => {
+    const key = recordKey(item);
+    if (key) merged.set(key, item);
+  });
+  localItems.forEach((item) => {
+    const key = recordKey(item);
+    if (!key) return;
+    merged.set(key, newerRecord(item, merged.get(key)));
+  });
+  return Array.from(merged.values());
+}
+
+function mergeDataByNewest(localData, cloudData) {
+  return {
+    families: mergeByNewest(localData.families, cloudData.families),
+    scheduleItems: mergeByNewest(localData.scheduleItems, cloudData.scheduleItems),
+    tasks: mergeByNewest(localData.tasks, cloudData.tasks)
+  };
+}
+
 const baselineRevenue = {
   ytdCollected: 0,
   ytdOwed: 0,
@@ -387,10 +438,12 @@ export default function App() {
         if (localHasRecords) {
           await FileSystem.writeAsStringAsync(BACKUP_FILE, JSON.stringify({ ...localData, backupAt: new Date().toISOString() }));
         }
-        setFamilies(cloudData.families);
-        setScheduleItems(cloudData.scheduleItems);
-        setTasks(cloudData.tasks);
-        setCloudMessage("Cloud data refreshed");
+        const mergedData = mergeDataByNewest(localData, cloudData);
+        setFamilies(mergedData.families);
+        setScheduleItems(mergedData.scheduleItems);
+        setTasks(mergedData.tasks);
+        await saveCloudData(mergedData);
+        setCloudMessage("Newest phone/cloud data merged");
       }
     } catch (error) {
       setCloudMessage("Cloud refresh failed");
@@ -551,6 +604,8 @@ export default function App() {
       notes: familyForm.notes,
       focus: "",
       documents: [],
+      checklist: defaultChecklist(),
+      updatedAt: new Date().toISOString(),
       amount: Number(familyForm.amount || 0),
       paymentStatus: familyForm.paymentStatus,
       archived: false
@@ -569,7 +624,7 @@ export default function App() {
     const syncResult = await syncEntryToCalendar(entryForm);
 
     if (entryForm.entryType === "task") {
-      setTasks((items) => [...items, { id, title: entryForm.title, dueDate: entryForm.dueDate, googleEventId: syncResult.eventId }]);
+      setTasks((items) => [...items, { id, title: entryForm.title, dueDate: entryForm.dueDate, googleEventId: syncResult.eventId, updatedAt: new Date().toISOString() }]);
       setScheduleFilter("task");
     } else {
       setScheduleItems((items) => [
@@ -581,7 +636,8 @@ export default function App() {
           time: entryForm.time || "9:00",
           date: entryForm.dueDate,
           note: `${entryForm.note || "Calendar item"} - ${syncResult.note}`,
-          googleEventId: syncResult.eventId
+          googleEventId: syncResult.eventId,
+          updatedAt: new Date().toISOString()
         }
       ]);
       setScheduleFilter("schedule");
@@ -592,7 +648,9 @@ export default function App() {
   }
 
   function updateFamily(id, patch) {
-    setFamilies((items) => items.map((family) => (family.id === id ? { ...family, ...patch } : family)));
+    setFamilies((items) => items.map((family) => (
+      family.id === id ? { ...family, ...patch, updatedAt: new Date().toISOString() } : family
+    )));
   }
 
   function renderToday() {
@@ -911,10 +969,7 @@ function CaseCard({ family, expanded, onExpand, onUpdate, onSyncParticipant, con
           <EditableBlock title={isIntervention ? "Treatment recommendations" : "Coaching focus"} value={family.focus} onChange={(focus) => onUpdate(family.id, { focus })} multiline />
           <DocumentsBlock family={family} onUpdate={onUpdate} />
           {isIntervention ? (
-            <View style={styles.detailBlock}>
-              <Text style={styles.blockTitle}>Case checklist</Text>
-              {["Contract sent", "Contract signed and payment received", "Prep Call Completed", "Treatment Selected", "Intervention Date Set", "Intervention Completed"].map((item) => <Row key={item} label={item} value="Open" tone="blue" />)}
-            </View>
+            <ChecklistBlock family={family} onUpdate={onUpdate} />
           ) : null}
           <TouchableOpacity style={styles.actionButton} onPress={() => onUpdate(family.id, { type: isIntervention ? "coaching" : "intervention" })}>
             <Text style={styles.actionText}>{isIntervention ? "Move to Coaching" : "Move to Intervention"}</Text>
@@ -924,6 +979,35 @@ function CaseCard({ family, expanded, onExpand, onUpdate, onSyncParticipant, con
           </TouchableOpacity>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function ChecklistBlock({ family, onUpdate }) {
+  const checklist = normalizeChecklist(family.checklist);
+
+  function toggleItem(key) {
+    const nextChecklist = { ...checklist, [key]: !checklist[key] };
+    const patch = { checklist: nextChecklist };
+    if (key === "paymentReceived") {
+      patch.paymentStatus = nextChecklist.paymentReceived ? "received" : "pending";
+    }
+    onUpdate(family.id, patch);
+  }
+
+  return (
+    <View style={styles.detailBlock}>
+      <Text style={styles.blockTitle}>Case checklist</Text>
+      {interventionChecklistItems.map((item) => {
+        const completed = Boolean(checklist[item.key]);
+        return (
+          <TouchableOpacity key={item.key} style={[styles.checklistRow, completed && styles.checklistRowDone]} onPress={() => toggleItem(item.key)}>
+            <Text style={[styles.checkBox, completed && styles.checkBoxDone]}>{completed ? "✓" : ""}</Text>
+            <Text style={styles.checklistLabel}>{item.label}</Text>
+            <Text style={[styles.checklistStatus, completed ? styles.green : styles.blue]}>{completed ? "Done" : "Open"}</Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -1176,6 +1260,12 @@ const styles = StyleSheet.create({
   disabledButton: { opacity: 0.55 },
   formCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 12, backgroundColor: "#fffdf8", marginBottom: 10 },
   formActions: { flexDirection: "row", gap: 8 },
+  checklistRow: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 10, marginBottom: 8, backgroundColor: "#fffdf8", gap: 10 },
+  checklistRowDone: { backgroundColor: "#edf8f2", borderColor: "#b9dec9" },
+  checkBox: { width: 24, height: 24, borderWidth: 1, borderColor: "#9ca8a2", borderRadius: 6, textAlign: "center", lineHeight: 22, fontWeight: "900", color: "#2f6f5e" },
+  checkBoxDone: { backgroundColor: "#d9ebe3", borderColor: "#2f6f5e" },
+  checklistLabel: { flex: 1, color: "#17211d", fontWeight: "800" },
+  checklistStatus: { fontSize: 12, fontWeight: "900" },
   participantCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 10, backgroundColor: "#fffdf8", marginBottom: 10 },
   participantHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
   participantName: { fontSize: 14, fontWeight: "900", color: "#17211d" },

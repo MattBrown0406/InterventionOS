@@ -1,6 +1,6 @@
 import { hasSupabaseConfig, supabase } from "./supabase";
 
-const FAMILY_COLUMNS = "id, local_id, name, type, status, ip_name, primary_substance, meta, participants, contact, notes, focus, documents, amount, payment_status, archived, updated_at";
+const FAMILY_COLUMNS = "id, local_id, name, type, status, ip_name, primary_substance, meta, participants, contact, notes, focus, documents, checklist, amount, payment_status, archived, updated_at";
 const SCHEDULE_COLUMNS = "id, local_id, title, family_name, item_date, item_time, starts_at, note, google_event_id, updated_at";
 const TASK_COLUMNS = "id, local_id, title, family_name, due_date, note, completed, google_event_id, updated_at";
 
@@ -47,6 +47,8 @@ function cloudFamilyToLocal(row) {
     notes: row.notes || "",
     focus: row.focus || "",
     documents: Array.isArray(row.documents) ? row.documents : [],
+    checklist: row.checklist && typeof row.checklist === "object" ? row.checklist : {},
+    updatedAt: row.updated_at || "",
     amount: Number(row.amount || 0),
     paymentStatus: row.payment_status || "pending",
     archived: Boolean(row.archived),
@@ -69,6 +71,7 @@ function localFamilyToCloud(family, userId) {
     notes: family.notes || "",
     focus: family.focus || "",
     documents: Array.isArray(family.documents) ? family.documents : [],
+    checklist: family.checklist && typeof family.checklist === "object" ? family.checklist : {},
     amount: Number(family.amount || 0),
     payment_status: family.paymentStatus || "pending",
     archived: Boolean(family.archived),
@@ -85,6 +88,7 @@ function cloudScheduleToLocal(row) {
     date: row.item_date || "",
     note: row.note || "",
     googleEventId: row.google_event_id || "",
+    updatedAt: row.updated_at || "",
   };
 }
 
@@ -113,6 +117,7 @@ function cloudTaskToLocal(row) {
     note: row.note || "",
     completed: Boolean(row.completed),
     googleEventId: row.google_event_id || "",
+    updatedAt: row.updated_at || "",
   };
 }
 

@@ -18,6 +18,7 @@ create table if not exists public.families (
   notes text,
   focus text,
   documents jsonb not null default '[]'::jsonb,
+  checklist jsonb not null default '{}'::jsonb,
   amount numeric(12, 2) not null default 0,
   payment_status text not null default 'pending' check (payment_status in ('pending', 'received')),
   archived boolean not null default false,
@@ -30,6 +31,7 @@ alter table public.families add column if not exists owner_id uuid references au
 alter table public.families add column if not exists ip_name text;
 alter table public.families add column if not exists primary_substance text;
 alter table public.families add column if not exists documents jsonb not null default '[]'::jsonb;
+alter table public.families add column if not exists checklist jsonb not null default '{}'::jsonb;
 alter table public.families add column if not exists local_id text;
 do $$
 begin

@@ -66,7 +66,7 @@ async function logAction(action: string, request: Record<string, unknown>, resul
 async function listFamilies(args: Record<string, unknown>) {
   let query = supabase
     .from("families")
-    .select("id,name,type,status,ip_name,primary_substance,meta,contact,notes,focus,participants,documents,amount,payment_status,archived,updated_at")
+    .select("id,name,type,status,ip_name,primary_substance,meta,contact,notes,focus,participants,documents,checklist,amount,payment_status,archived,updated_at")
     .order("updated_at", { ascending: false })
     .limit(limit(args.limit));
 
@@ -107,6 +107,7 @@ async function createFamily(args: Record<string, unknown>) {
     archived: Boolean(args.archived),
     participants: Array.isArray(args.participants) ? args.participants : [],
     documents: Array.isArray(args.documents) ? args.documents : [],
+    checklist: args.checklist && typeof args.checklist === "object" ? args.checklist : {},
     owner_id: isUuid(args.ownerId || args.owner_id) ? String(args.ownerId || args.owner_id) : OWNER_USER_ID || null,
   };
 
@@ -140,6 +141,7 @@ async function updateFamily(args: Record<string, unknown>) {
   }
   if (Array.isArray(args.participants)) patch.participants = args.participants;
   if (Array.isArray(args.documents)) patch.documents = args.documents;
+  if (args.checklist && typeof args.checklist === "object") patch.checklist = args.checklist;
   if (!Object.keys(patch).length) throw new Error("No fields provided");
 
   const { data, error } = await supabase.from("families").update(patch).eq("id", args.id).select("*").single();
