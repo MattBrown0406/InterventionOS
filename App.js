@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -16,7 +17,7 @@ import * as Calendar from "expo-calendar";
 import * as Contacts from "expo-contacts";
 import * as FileSystem from "expo-file-system";
 import { hasSupabaseConfig } from "./src/lib/supabase";
-import { getCurrentSession, getCurrentUser, loadCloudData, saveCloudData, signInInterventionOS, signOutInterventionOS } from "./src/lib/cloudData";
+import { getCurrentSession, getCurrentUser, loadCloudData, saveCloudData, signInInterventionOS, signOutInterventionOS, deleteCloudScheduleItem, deleteCloudTask } from "./src/lib/cloudData";
 
 function toLocalISODate(date) {
   const year = date.getFullYear();
@@ -251,6 +252,7 @@ export default function App() {
     dueDate: todayISODate,
     note: ""
   });
+  const [editingEntry, setEditingEntry] = useState(null);
 
   const activeFamilies = families.filter((family) => !family.archived);
   const visibleFamilies = activeFamilies.filter((family) => family.type === caseFilter);
@@ -622,33 +624,187 @@ export default function App() {
     setFamilyForm({ name: "", type: "intervention", ipName: "", primarySubstance: "", contact: "", meta: "", notes: "", amount: "", paymentStatus: "pending" });
   }
 
-  async function createScheduleEntry() {
+  function resetEntryForm() {
+    setEditingEntry(null);
+    setShowEntryForm(false);
+    setEntryForm({ entryType: "schedule", title: "", family: "", time: "09:00", dueDate: todayISODate, note: "" });
+  }
+
+  function startEditScheduleEntry(type, item) {
+    setEditingEntry({ type, id: item.id });
+    setScheduleFilter(type);
+    setEntryForm({
+      entryType: type,
+      title: item.title || "",
+      family: item.family || "",
+      time: item.time || "09:00",
+      dueDate: type === "task" ? item.dueDate || todayISODate : item.date || todayISODate,
+      note: item.note || ""
+    });
+    setShowEntryForm(true);
+  }
+
+  async function updateCalendarEntry(type, existingItem, form) {
+    if (!existingItem?.googleEventId || !calendarReady) return existingItem?.googleEventId || "";
+
+    const date = parseDate(form.dueDate);
+    if (!date) {
+      setCalendarMessage("Use dates as YYYY-MM-DD");
+      return existingItem.googleEventId;
+    }
+
+    try {
+      if (type === "task") {
+        const endDate = new Date(date);
+        endDate.setDate(endDate.getDate() + 1);
+        await Calendar.updateEventAsync(existingItem.googleEventId, {
+          title: `Task: ${form.title.trim()}`,
+          notes: [form.family, form.note].filter(Boolean).join("\n"),
+          startDate: date,
+          endDate,
+          allDay: true,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        });
+      } else {
+        const time = parseTime(form.time);
+        const startDate = new Date(date);
+        startDate.setHours(time.hours, time.minutes, 0, 0);
+        const endDate = new Date(startDate);
+        endDate.setHours(endDate.getHours() + 1);
+        await Calendar.updateEventAsync(existingItem.googleEventId, {
+          title: form.title.trim(),
+          location: form.family,
+          notes: form.note,
+          startDate,
+          endDate,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          alarms: [{ relativeOffset: -15 }]
+        });
+      }
+      setCalendarMessage("Calendar item updated");
+      return existingItem.googleEventId;
+    } catch (error) {
+      setCalendarMessage("Calendar update failed");
+      return existingItem.googleEventId;
+    }
+  }
+
+  async function deleteCalendarEntry(item) {
+    if (!item?.googleEventId) return;
+    try {
+      await Calendar.deleteEventAsync(item.googleEventId);
+      setCalendarMessage("Calendar item deleted");
+    } catch (error) {
+      setCalendarMessage("Calendar delete failed");
+    }
+  }
+
+  async function saveScheduleEntry() {
     if (!entryForm.title.trim()) return;
+    const updatedAt = new Date().toISOString();
+
+    if (editingEntry) {
+      if (editingEntry.type === "task") {
+        const existingTask = tasks.find((task) => task.id === editingEntry.id);
+        const googleEventId = await updateCalendarEntry("task", existingTask, entryForm);
+        setTasks((items) => items.map((task) => task.id === editingEntry.id ? {
+          ...task,
+          title: entryForm.title.trim(),
+          family: entryForm.family.trim(),
+          dueDate: entryForm.dueDate,
+          note: entryForm.note,
+          googleEventId,
+          updatedAt
+        } : task));
+      } else {
+        const existingItem = scheduleItems.find((item) => item.id === editingEntry.id);
+        const googleEventId = await updateCalendarEntry("schedule", existingItem, entryForm);
+        setScheduleItems((items) => items.map((item) => item.id === editingEntry.id ? {
+          ...item,
+          title: entryForm.title.trim(),
+          family: entryForm.family.trim() || "General",
+          time: entryForm.time || "09:00",
+          date: entryForm.dueDate,
+          note: entryForm.note,
+          googleEventId,
+          updatedAt
+        } : item));
+      }
+      resetEntryForm();
+      return;
+    }
+
     const id = `${Date.now()}`;
     const syncResult = await syncEntryToCalendar(entryForm);
 
     if (entryForm.entryType === "task") {
-      setTasks((items) => [...items, { id, title: entryForm.title, dueDate: entryForm.dueDate, googleEventId: syncResult.eventId, updatedAt: new Date().toISOString() }]);
+      setTasks((items) => [...items, {
+        id,
+        title: entryForm.title.trim(),
+        family: entryForm.family.trim(),
+        dueDate: entryForm.dueDate,
+        note: entryForm.note,
+        googleEventId: syncResult.eventId,
+        updatedAt
+      }]);
       setScheduleFilter("task");
     } else {
       setScheduleItems((items) => [
         ...items,
         {
           id,
-          title: entryForm.title,
-          family: entryForm.family || "General",
-          time: entryForm.time || "9:00",
+          title: entryForm.title.trim(),
+          family: entryForm.family.trim() || "General",
+          time: entryForm.time || "09:00",
           date: entryForm.dueDate,
-          note: `${entryForm.note || "Calendar item"} - ${syncResult.note}`,
+          note: entryForm.note || syncResult.note,
           googleEventId: syncResult.eventId,
-          updatedAt: new Date().toISOString()
+          updatedAt
         }
       ]);
       setScheduleFilter("schedule");
     }
 
-    setShowEntryForm(false);
-    setEntryForm({ entryType: "schedule", title: "", family: "", time: "09:00", dueDate: todayISODate, note: "" });
+    resetEntryForm();
+  }
+
+  function removeScheduleEntry(type, item) {
+    Alert.alert(
+      type === "task" ? "Delete task?" : "Delete appointment?",
+      `Remove ${item.title || "this item"} from InterventionOS${item.googleEventId ? " and Calendar" : ""}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            await deleteCalendarEntry(item);
+            if (type === "task") {
+              setTasks((items) => items.filter((task) => task.id !== item.id));
+              if (cloudUser) {
+                try {
+                  await deleteCloudTask(item);
+                  setCloudMessage("Task deleted from cloud");
+                } catch (error) {
+                  setCloudMessage("Cloud delete needs attention");
+                }
+              }
+            } else {
+              setScheduleItems((items) => items.filter((entry) => entry.id !== item.id));
+              if (cloudUser) {
+                try {
+                  await deleteCloudScheduleItem(item);
+                  setCloudMessage("Appointment deleted from cloud");
+                } catch (error) {
+                  setCloudMessage("Cloud delete needs attention");
+                }
+              }
+            }
+            if (editingEntry?.id === item.id) resetEntryForm();
+          }
+        }
+      ]
+    );
   }
 
   function updateFamily(id, patch) {
@@ -742,7 +898,7 @@ export default function App() {
             {entryForm.entryType === "schedule" ? <TextInput style={styles.input} placeholder="Time" value={entryForm.time} onChangeText={(time) => setEntryForm({ ...entryForm, time })} /> : null}
             <TextInput style={styles.input} placeholder={entryForm.entryType === "task" ? "Due date" : "Date"} value={entryForm.dueDate} onChangeText={(dueDate) => setEntryForm({ ...entryForm, dueDate })} />
             <TextInput style={styles.input} placeholder="Note" value={entryForm.note} onChangeText={(note) => setEntryForm({ ...entryForm, note })} />
-            <FormActions onSave={createScheduleEntry} onCancel={() => setShowEntryForm(false)} saveLabel="Create item" />
+            <FormActions onSave={saveScheduleEntry} onCancel={resetEntryForm} saveLabel={editingEntry ? "Save changes" : "Create item"} />
           </FormCard>
         ) : null}
         <Segmented
@@ -753,7 +909,11 @@ export default function App() {
           value={scheduleFilter}
           onChange={setScheduleFilter}
         />
-        {scheduleFilter === "schedule" ? scheduleItems.map((item) => <Appointment key={item.id} item={item} />) : tasks.map((task) => <Row key={task.id} label={task.title} value={task.dueDate === todayISODate ? "Due today" : task.dueDate} tone={task.dueDate === todayISODate ? "rose" : "blue"} />)}
+        {scheduleFilter === "schedule" ? scheduleItems.map((item) => (
+          <Appointment key={item.id} item={item} onEdit={() => startEditScheduleEntry("schedule", item)} onDelete={() => removeScheduleEntry("schedule", item)} />
+        )) : tasks.map((task) => (
+          <TaskRow key={task.id} task={task} onEdit={() => startEditScheduleEntry("task", task)} onDelete={() => removeScheduleEntry("task", task)} />
+        ))}
         {scheduleFilter === "schedule" && !scheduleItems.length ? <Text style={styles.empty}>No schedule items yet.</Text> : null}
         {scheduleFilter === "task" && !tasks.length ? <Text style={styles.empty}>No tasks yet.</Text> : null}
       </ScrollView>
@@ -1183,13 +1343,50 @@ function Metric({ label, value, note }) {
   );
 }
 
-function Appointment({ item }) {
+function Appointment({ item, onEdit, onDelete }) {
   return (
     <View style={styles.appointment}>
       <Text style={styles.time}>{item.time}</Text>
       <View style={styles.caseText}>
         <Text style={styles.cardTitle}>{item.title}</Text>
-        <Text style={styles.muted}>{item.family} - {item.note}</Text>
+        <Text style={styles.muted}>{item.family} - {item.date || "Date not set"}</Text>
+        {item.note ? <Text style={styles.muted}>{item.note}</Text> : null}
+        {onEdit || onDelete ? (
+          <View style={styles.itemActions}>
+            {onEdit ? (
+              <TouchableOpacity style={styles.smallButton} onPress={onEdit}>
+                <Text style={styles.smallButtonText}>Edit</Text>
+              </TouchableOpacity>
+            ) : null}
+            {onDelete ? (
+              <TouchableOpacity style={[styles.smallButton, styles.deleteSmallButton]} onPress={onDelete}>
+                <Text style={styles.deleteSmallButtonText}>Delete</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function TaskRow({ task, onEdit, onDelete }) {
+  const dueToday = task.dueDate === todayISODate;
+  return (
+    <View style={styles.taskCard}>
+      <View style={styles.caseText}>
+        <Text style={styles.cardTitle}>{task.title}</Text>
+        <Text style={[styles.muted, dueToday && styles.rose]}>{dueToday ? "Due today" : task.dueDate || "No due date"}</Text>
+        {task.family ? <Text style={styles.muted}>{task.family}</Text> : null}
+        {task.note ? <Text style={styles.muted}>{task.note}</Text> : null}
+      </View>
+      <View style={styles.itemActions}>
+        <TouchableOpacity style={styles.smallButton} onPress={onEdit}>
+          <Text style={styles.smallButtonText}>Edit</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.smallButton, styles.deleteSmallButton]} onPress={onDelete}>
+          <Text style={styles.deleteSmallButtonText}>Delete</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -1279,6 +1476,8 @@ const styles = StyleSheet.create({
   participantNotes: { color: "#68736e", fontWeight: "650", fontSize: 12, lineHeight: 17, marginBottom: 8 },
   smallButton: { borderRadius: 8, borderWidth: 1, borderColor: "#dbe2de", paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#fffdf8" },
   smallButtonText: { color: "#2f6f5e", fontWeight: "900" },
+  deleteSmallButton: { borderColor: "#e3c1c1", backgroundColor: "#f1dddd" },
+  deleteSmallButtonText: { color: "#a64949", fontWeight: "900" },
   contactLink: { minHeight: 40, borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 10, backgroundColor: "#fffdf8", flexDirection: "row", justifyContent: "space-between", gap: 8, marginBottom: 8 },
   contactLabel: { flex: 1, color: "#17211d", fontWeight: "750" },
   contactValue: { color: "#2f5f8f", fontWeight: "900", flexShrink: 1, textAlign: "right" },
@@ -1288,6 +1487,8 @@ const styles = StyleSheet.create({
   segmentText: { color: "#68736e", fontWeight: "850" },
   segmentTextActive: { color: "#fff" },
   appointment: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 12, backgroundColor: "#fffdf8", marginBottom: 10, flexDirection: "row", gap: 12, alignItems: "center" },
+  taskCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 12, backgroundColor: "#fffdf8", marginBottom: 10, gap: 10 },
+  itemActions: { flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" },
   time: { width: 64, textAlign: "center", paddingVertical: 16, backgroundColor: "#eef2ef", borderRadius: 8, fontWeight: "900", color: "#17211d" },
   revenueCard: { borderWidth: 1, borderColor: "#dbe2de", borderRadius: 8, padding: 14, backgroundColor: "#fffdf8", marginBottom: 10 },
   bigMoney: { fontSize: 34, fontWeight: "900", color: "#17211d", marginVertical: 8 },

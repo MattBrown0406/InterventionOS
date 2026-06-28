@@ -202,3 +202,33 @@ export async function saveCloudData({ families, scheduleItems, tasks }) {
 
   return { synced: true, syncedAt: new Date().toISOString() };
 }
+
+async function deleteCloudRow(table, item) {
+  const client = requireClient();
+  const user = await getCurrentUser();
+  if (!user) return { skipped: true, reason: "not_signed_in" };
+
+  const cloudId = item?.cloudId || (isUuid(item?.id) ? item.id : "");
+  if (cloudId) {
+    const { error } = await client.from(table).delete().eq("owner_id", user.id).eq("id", cloudId);
+    if (error) throw error;
+    return { deleted: true };
+  }
+
+  const localId = item?.localId || item?.local_id || item?.id;
+  if (localId) {
+    const { error } = await client.from(table).delete().eq("owner_id", user.id).eq("local_id", String(localId));
+    if (error) throw error;
+    return { deleted: true };
+  }
+
+  return { skipped: true, reason: "missing_id" };
+}
+
+export async function deleteCloudScheduleItem(item) {
+  return deleteCloudRow("schedule_items", item);
+}
+
+export async function deleteCloudTask(item) {
+  return deleteCloudRow("tasks", item);
+}
