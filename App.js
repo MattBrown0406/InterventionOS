@@ -40,6 +40,11 @@ const seedSchedule = [];
 const seedTasks = [];
 
 const STORAGE_FILE = `${FileSystem.documentDirectory}interventionos-data.json`;
+const BACKUP_FILE = `${FileSystem.documentDirectory}interventionos-last-nonempty-backup.json`;
+
+function hasRecords(data) {
+  return Boolean(data?.families?.length || data?.scheduleItems?.length || data?.tasks?.length);
+}
 
 const baselineRevenue = {
   ytdCollected: 0,
@@ -284,6 +289,9 @@ export default function App() {
       };
 
       await FileSystem.writeAsStringAsync(STORAGE_FILE, JSON.stringify(data));
+      if (hasRecords(data)) {
+        await FileSystem.writeAsStringAsync(BACKUP_FILE, JSON.stringify({ ...data, backupAt: new Date().toISOString() }));
+      }
       setSaveMessage("All changes saved on this iPhone");
 
       if (cloudUser) {
@@ -334,6 +342,22 @@ export default function App() {
     setCloudMessage("Signed out of cloud sync");
   }
 
+  async function syncLocalToCloud() {
+    if (!hasSupabaseConfig) return;
+    try {
+      const user = await getCurrentUser();
+      setCloudUser(user);
+      if (!user) {
+        setCloudMessage("Cloud ready - sign in to sync");
+        return;
+      }
+      await saveCloudData({ families, scheduleItems, tasks });
+      setCloudMessage("Local data uploaded to cloud");
+    } catch (error) {
+      setCloudMessage("Cloud upload failed");
+    }
+  }
+
   async function refreshCloud() {
     if (!hasSupabaseConfig) return;
     try {
@@ -345,6 +369,24 @@ export default function App() {
       }
       const cloudData = await loadCloudData();
       if (cloudData) {
+        const localData = { families, scheduleItems, tasks };
+        const localHasRecords = hasRecords(localData);
+        const cloudHasRecords = hasRecords(cloudData);
+
+        if (!cloudHasRecords && localHasRecords) {
+          await saveCloudData(localData);
+          setCloudMessage("Cloud was empty - local data uploaded instead");
+          return;
+        }
+
+        if (!cloudHasRecords && !localHasRecords) {
+          setCloudMessage("Cloud is empty");
+          return;
+        }
+
+        if (localHasRecords) {
+          await FileSystem.writeAsStringAsync(BACKUP_FILE, JSON.stringify({ ...localData, backupAt: new Date().toISOString() }));
+        }
         setFamilies(cloudData.families);
         setScheduleItems(cloudData.scheduleItems);
         setTasks(cloudData.tasks);
@@ -352,6 +394,36 @@ export default function App() {
       }
     } catch (error) {
       setCloudMessage("Cloud refresh failed");
+    }
+  }
+
+  async function restoreLocalBackup() {
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(BACKUP_FILE);
+      if (!fileInfo.exists) {
+        setSaveMessage("No local backup found");
+        return;
+      }
+      const rawData = await FileSystem.readAsStringAsync(BACKUP_FILE);
+      const backupData = JSON.parse(rawData);
+      if (!hasRecords(backupData)) {
+        setSaveMessage("Local backup is empty");
+        return;
+      }
+      setFamilies(storedArray(backupData.families));
+      setScheduleItems(storedArray(backupData.scheduleItems));
+      setTasks(storedArray(backupData.tasks));
+      setSaveMessage("Local backup restored");
+      if (cloudUser) {
+        await saveCloudData({
+          families: storedArray(backupData.families),
+          scheduleItems: storedArray(backupData.scheduleItems),
+          tasks: storedArray(backupData.tasks)
+        });
+        setCloudMessage("Backup restored and uploaded");
+      }
+    } catch (error) {
+      setSaveMessage("Backup restore failed");
     }
   }
 
@@ -661,14 +733,20 @@ export default function App() {
         ) : null}
         {cloudUser ? (
           <View>
+            <TouchableOpacity style={styles.actionButton} onPress={syncLocalToCloud}>
+              <Text style={styles.actionText}>Sync local data to cloud</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={refreshCloud}>
-              <Text style={styles.actionText}>Refresh from cloud</Text>
+              <Text style={styles.actionText}>Pull from cloud safely</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelButton} onPress={disconnectCloud}>
               <Text style={styles.cancelText}>Disconnect cloud sync</Text>
             </TouchableOpacity>
           </View>
         ) : null}
+        <TouchableOpacity style={styles.actionButton} onPress={restoreLocalBackup}>
+          <Text style={styles.actionText}>Restore last local backup</Text>
+        </TouchableOpacity>
         <Row label="Local data" value={saveMessage} tone={saveMessage.includes("attention") || saveMessage.includes("could not") ? "gold" : "green"} />
         <Row label="Google Calendar sync" value={calendarReady ? "Ready" : "Needs setup"} tone={calendarReady ? "green" : "gold"} />
         <Row label="Selected calendar" value={selectedCalendar ? calendarName(selectedCalendar) : calendarMessage} tone={calendarReady ? "green" : "blue"} />
