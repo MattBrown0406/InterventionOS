@@ -308,7 +308,13 @@ export default function App() {
     try {
       const user = await signInInterventionOS(authForm.email, authForm.password);
       setCloudUser(user);
-      setCloudMessage("Signed in - loading cloud data");
+      setCloudMessage("Signed in - syncing local data");
+
+      const hasLocalData = families.length || scheduleItems.length || tasks.length;
+      if (hasLocalData) {
+        await saveCloudData({ families, scheduleItems, tasks });
+      }
+
       const cloudData = await loadCloudData();
       if (cloudData) {
         setFamilies(cloudData.families);
