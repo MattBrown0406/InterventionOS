@@ -20,6 +20,13 @@ export async function getCurrentUser() {
   return data.user || null;
 }
 
+export async function getCurrentSession() {
+  if (!canUseCloud()) return null;
+  const { data, error } = await supabase.auth.getSession();
+  if (error) return null;
+  return data.session || null;
+}
+
 export async function signInInterventionOS(email, password) {
   const client = requireClient();
   const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });

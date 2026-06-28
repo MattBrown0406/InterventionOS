@@ -16,7 +16,7 @@ import * as Calendar from "expo-calendar";
 import * as Contacts from "expo-contacts";
 import * as FileSystem from "expo-file-system";
 import { hasSupabaseConfig } from "./src/lib/supabase";
-import { getCurrentUser, loadCloudData, saveCloudData, signInInterventionOS, signOutInterventionOS } from "./src/lib/cloudData";
+import { getCurrentSession, getCurrentUser, loadCloudData, saveCloudData, signInInterventionOS, signOutInterventionOS } from "./src/lib/cloudData";
 
 function toLocalISODate(date) {
   const year = date.getFullYear();
@@ -286,9 +286,23 @@ export default function App() {
 
   useEffect(() => {
     loadSavedData();
+    restoreCloudSession();
     refreshCalendars(false);
     refreshContacts(false);
   }, []);
+
+  async function restoreCloudSession() {
+    if (!hasSupabaseConfig) return;
+    try {
+      const session = await getCurrentSession();
+      if (session?.user) {
+        setCloudUser(session.user);
+        setCloudMessage("Cloud sync connected");
+      }
+    } catch (error) {
+      setCloudMessage("Cloud session restore failed");
+    }
+  }
 
   useEffect(() => {
     if (!dataLoaded) return undefined;
