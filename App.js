@@ -267,14 +267,15 @@ export default function App() {
 
   const revenue = useMemo(() => {
     const caseRevenue = families.filter((family) => Number(family.amount) > 0);
+    const activeCaseRevenue = caseRevenue.filter((family) => !family.archived);
     const received = caseRevenue
       .filter((family) => family.paymentStatus === "received")
       .reduce((sum, family) => sum + Number(family.amount), 0);
-    const pending = caseRevenue
+    const pending = activeCaseRevenue
       .filter((family) => family.paymentStatus === "pending")
       .reduce((sum, family) => sum + Number(family.amount), 0);
-    const avg = caseRevenue.length
-      ? caseRevenue.reduce((sum, family) => sum + Number(family.amount), 0) / caseRevenue.length
+    const avg = activeCaseRevenue.length
+      ? activeCaseRevenue.reduce((sum, family) => sum + Number(family.amount), 0) / activeCaseRevenue.length
       : 0;
 
     return {
@@ -282,7 +283,7 @@ export default function App() {
       ytdOwed: baselineRevenue.ytdOwed + pending,
       mtdCollected: baselineRevenue.mtdCollected + received,
       mtdOwed: baselineRevenue.mtdOwed + pending,
-      pendingCount: baselineRevenue.pendingCount + caseRevenue.filter((family) => family.paymentStatus === "pending").length,
+      pendingCount: baselineRevenue.pendingCount + activeCaseRevenue.filter((family) => family.paymentStatus === "pending").length,
       avg
     };
   }, [families]);
